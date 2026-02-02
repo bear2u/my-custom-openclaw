@@ -1,0 +1,147 @@
+.chat-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  flex: 1;
+  background: #16162a;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chat-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.status-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.status-badge.connected {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.2);
+}
+
+.status-badge.connecting {
+  color: #ff9800;
+  background: rgba(255, 152, 0, 0.2);
+}
+
+.status-badge.disconnected,
+.status-badge.error {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.2);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.session-info {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+  font-family: monospace;
+}
+
+.clear-button {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clear-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.project-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #6366f1;
+  color: white;
+  white-space: nowrap;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 첨부된 태스크 */
+.attached-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: #1e1e3a;
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #6366f1;
+}
+
+.attached-task-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.attached-label {
+  font-size: 12px;
+  color: #888;
+}
+
+.attached-title {
+  font-size: 13px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.attached-id {
+  font-size: 11px;
+  color: #6366f1;
+  font-family: monospace;
+}
+
+.attached-remove {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #666;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.attached-remove:hover {
+  background: #f871711a;
+  color: #f87171;
+}

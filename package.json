@@ -1,0 +1,28 @@
+{
+  "name": "slack-connector",
+  "version": "1.0.0",
+  "description": "Slack-Claude Gateway using Claude Code CLI headless mode",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev:all": "pnpm dev & pnpm dev:frontend",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.6.0",
+    "@slack/web-api": "^7.13.0",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.2.3",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
