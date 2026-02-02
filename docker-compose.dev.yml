@@ -1,0 +1,54 @@
+version: '3.8'
+
+# Development mode with hot reload
+services:
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: claude-gateway-nginx-dev
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+  # Backend with hot reload
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: claude-gateway-backend-dev
+    expose:
+      - "4900"
+    environment:
+      - NODE_ENV=development
+      - WS_PORT=4900
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-sonnet}
+      - CLAUDE_TIMEOUT_MS=${CLAUDE_TIMEOUT_MS:-120000}
+    volumes:
+      - ./src:/app/src:ro
+      - gateway-data:/root/.claude-gateway
+      - ${HOME}/.claude:/root/.claude:ro
+    restart: unless-stopped
+
+  # Frontend dev server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: claude-gateway-frontend-dev
+    expose:
+      - "5173"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/index.html:/app/index.html:ro
+    restart: unless-stopped
+
+volumes:
+  gateway-data:

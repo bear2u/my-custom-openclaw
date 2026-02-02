@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: claude-gateway-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Backend WebSocket server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-gateway-backend
+    expose:
+      - "4900"
+    environment:
+      - NODE_ENV=production
+      - WS_PORT=4900
+      - ENABLE_SLACK=${ENABLE_SLACK:-false}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-sonnet}
+      - CLAUDE_TIMEOUT_MS=${CLAUDE_TIMEOUT_MS:-120000}
+    volumes:
+      - gateway-data:/root/.claude-gateway
+      - ${HOME}/.claude:/root/.claude:ro
+    restart: unless-stopped
+
+  # Frontend build (one-time build, then served by nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: claude-gateway-frontend-builder
+    volumes:
+      - ./frontend/dist:/app/dist
+    profiles:
+      - build
+
+volumes:
+  gateway-data:

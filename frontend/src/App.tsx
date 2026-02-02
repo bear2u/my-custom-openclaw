@@ -8,7 +8,16 @@ import { KanbanPage } from './pages/KanbanPage'
 import type { KanbanTask } from './types'
 import './App.css'
 
-const WS_URL = 'ws://localhost:4900'
+// WebSocket URL - use /ws path in production (nginx proxy), direct connection in dev
+const getWsUrl = () => {
+  if (import.meta.env.PROD) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}/ws`
+  }
+  return 'ws://localhost:4900'
+}
+
+const WS_URL = getWsUrl()
 
 function ChatPage({
   ws,
