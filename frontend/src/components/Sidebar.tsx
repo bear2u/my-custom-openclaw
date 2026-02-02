@@ -8,7 +8,7 @@ interface SidebarProps {
   projects: Project[]
   selectedProjectId: string | null
   onProjectSelect: (id: string | null) => void
-  onProjectAdd: (name: string, path: string) => Promise<Project>
+  onProjectAdd: (name: string, path: string, createIfNotExists?: boolean) => Promise<Project>
   onProjectRemove: (id: string) => Promise<boolean>
   // 세션 관련
   sessions: ChatSession[]
@@ -51,8 +51,10 @@ export function Sidebar({
   const [newName, setNewName] = useState('')
   const [newPath, setNewPath] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false)
+  const [pendingPath, setPendingPath] = useState('')
 
-  const handleAddProject = async () => {
+  const handleAddProject = async (createIfNotExists = false) => {
     if (!newName.trim() || !newPath.trim()) {
       setError('이름과 경로를 모두 입력해주세요')
       return
@@ -60,13 +62,33 @@ export function Sidebar({
 
     try {
       setError(null)
-      await onProjectAdd(newName.trim(), newPath.trim())
+      setShowCreateConfirm(false)
+      await onProjectAdd(newName.trim(), newPath.trim(), createIfNotExists)
       setNewName('')
       setNewPath('')
+      setPendingPath('')
       setIsAddingProject(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '프로젝트 추가 실패')
+      const errorMsg = err instanceof Error ? err.message : '프로젝트 추가 실패'
+      // 디렉토리가 없는 경우 생성 여부 확인
+      if (errorMsg.startsWith('DIRECTORY_NOT_EXISTS:')) {
+        const path = errorMsg.replace('DIRECTORY_NOT_EXISTS:', '')
+        setPendingPath(path)
+        setShowCreateConfirm(true)
+        setError(null)
+      } else {
+        setError(errorMsg)
+      }
     }
+  }
+
+  const handleCreateAndAdd = async () => {
+    await handleAddProject(true)
+  }
+
+  const handleCancelCreate = () => {
+    setShowCreateConfirm(false)
+    setPendingPath('')
   }
 
   const handleRemoveProject = async (id: string, e: React.MouseEvent) => {
@@ -123,9 +145,28 @@ export function Sidebar({
               onChange={(e) => setNewPath(e.target.value)}
             />
             {error && <div className="error-message">{error}</div>}
-            <button className="confirm-btn" onClick={handleAddProject}>
-              추가
-            </button>
+            {showCreateConfirm && (
+              <div className="create-confirm">
+                <p className="confirm-message">
+                  폴더가 존재하지 않습니다:<br />
+                  <code>{pendingPath}</code>
+                </p>
+                <p className="confirm-question">새로 만드시겠습니까?</p>
+                <div className="confirm-buttons">
+                  <button className="confirm-yes" onClick={handleCreateAndAdd}>
+                    만들기
+                  </button>
+                  <button className="confirm-no" onClick={handleCancelCreate}>
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
+            {!showCreateConfirm && (
+              <button className="confirm-btn" onClick={() => handleAddProject()}>
+                추가
+              </button>
+            )}
           </div>
         )}
 

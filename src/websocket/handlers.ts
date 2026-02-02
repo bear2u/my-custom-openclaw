@@ -172,11 +172,11 @@ export function createHandlers(
     },
 
     'project.add': async (params) => {
-      const { name, path } = params as ProjectAddParams
+      const { name, path, createIfNotExists } = params as ProjectAddParams & { createIfNotExists?: boolean }
       if (!name || !path) {
         throw new Error('name and path are required')
       }
-      return projects.add(name, path)
+      return projects.add(name, path, createIfNotExists)
     },
 
     'project.remove': async (params) => {

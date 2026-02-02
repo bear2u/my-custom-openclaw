@@ -48,12 +48,17 @@ export class ProjectManager {
     }
   }
 
-  async add(name: string, path: string): Promise<Project> {
+  async add(name: string, path: string, createIfNotExists = false): Promise<Project> {
     await this.load()
 
     // 경로 유효성 검사
     if (!existsSync(path)) {
-      throw new Error(`Directory does not exist: ${path}`)
+      if (createIfNotExists) {
+        await mkdir(path, { recursive: true })
+        console.log(`[ProjectManager] Created directory: ${path}`)
+      } else {
+        throw new Error(`DIRECTORY_NOT_EXISTS:${path}`)
+      }
     }
 
     const id = crypto.randomUUID()

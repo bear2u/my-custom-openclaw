@@ -33,7 +33,7 @@ interface UseWebSocketReturn {
   clearMessages: () => void
   setProjectId: (id: string | null) => void
   loadProjects: () => Promise<void>
-  addProject: (name: string, path: string) => Promise<Project>
+  addProject: (name: string, path: string, createIfNotExists?: boolean) => Promise<Project>
   removeProject: (id: string) => Promise<boolean>
   loadSessions: () => Promise<void>
   loadHistory: (sessionId: string) => Promise<void>
@@ -267,8 +267,8 @@ export function useWebSocket(url: string): UseWebSocketReturn {
   }, [sendRpc])
 
   const addProject = useCallback(
-    async (name: string, path: string): Promise<Project> => {
-      const project = await sendRpc<Project>('project.add', { name, path })
+    async (name: string, path: string, createIfNotExists?: boolean): Promise<Project> => {
+      const project = await sendRpc<Project>('project.add', { name, path, createIfNotExists })
       setProjects((prev) => [project, ...prev])
       return project
     },

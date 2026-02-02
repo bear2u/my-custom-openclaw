@@ -226,3 +226,75 @@
   font-size: 12px;
   padding: 20px 12px;
 }
+
+/* Create Confirm Dialog */
+.create-confirm {
+  background: #2a2a4a;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 4px;
+}
+
+.confirm-message {
+  font-size: 12px;
+  color: #f59e0b;
+  margin: 0 0 8px 0;
+  line-height: 1.5;
+}
+
+.confirm-message code {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: #1a1a2e;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #e0e0e0;
+  word-break: break-all;
+}
+
+.confirm-question {
+  font-size: 13px;
+  color: #e0e0e0;
+  margin: 0 0 12px 0;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.confirm-yes {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: #22c55e;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.confirm-yes:hover {
+  background: #16a34a;
+}
+
+.confirm-no {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #444;
+  background: transparent;
+  color: #888;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.confirm-no:hover {
+  background: #3a3a5c;
+  color: #e0e0e0;
+}
