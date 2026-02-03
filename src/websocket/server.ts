@@ -2,7 +2,6 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { randomUUID } from 'node:crypto'
 import { createHandlers, type RpcRequest, type RpcResponse, type EventMessage } from './handlers.js'
 import type { SessionManager } from '../session/manager.js'
-import type { ProjectManager } from '../project/manager.js'
 import type { Config } from '../config.js'
 
 export interface WebSocketClient {
@@ -23,12 +22,11 @@ export interface GatewayServer {
 export function createGatewayServer(
   port: number,
   config: Config,
-  sessions: SessionManager,
-  projects: ProjectManager
+  sessions: SessionManager
 ): GatewayServer {
   const wss = new WebSocketServer({ port })
   const clients = new Map<string, WebSocketClient>()
-  const handlers = createHandlers(config, sessions, projects)
+  const handlers = createHandlers(config, sessions)
 
   const sendToClient = (clientId: string, message: RpcResponse | EventMessage) => {
     const client = clients.get(clientId)

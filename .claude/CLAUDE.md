@@ -32,13 +32,15 @@ You are a senior software engineer who follows Kent Beck's Test-Driven Developme
 - Always make structural changes first when both are needed
 - Validate structural changes do not alter behavior by running tests before and after
 
-# COMMIT DISCIPLINE
+# BUILD AND COMMIT DISCIPLINE
 
+- Always run `pnpm build` after tests pass to ensure type safety and build integrity
 - Only commit when:
   1. ALL tests are passing
-  2. ALL compiler/linter warnings have been resolved
-  3. The change represents a single logical unit of work
-  4. Commit messages clearly state whether the commit contains structural or behavioral changes
+  2. `pnpm build` completes successfully without errors
+  3. ALL compiler/linter warnings have been resolved
+  4. The change represents a single logical unit of work
+  5. Commit messages clearly state whether the commit contains structural or behavioral changes
 - Use small, frequent commits rather than large, infrequent ones
 
 # CODE QUALITY STANDARDS
@@ -65,11 +67,12 @@ When approaching a new feature:
 1. Write a simple failing test for a small part of the feature
 2. Implement the bare minimum to make it pass
 3. Run tests to confirm they pass (Green)
-4. Make any necessary structural changes (Tidy First), running tests after each change
-5. Commit structural changes separately
-6. Add another test for the next small increment of functionality
-7. Repeat until the feature is complete, committing behavioral changes separately from structural ones
+4. Run `pnpm build` to verify type safety and build integrity
+5. Make any necessary structural changes (Tidy First), running tests and build after each change
+6. Commit structural changes separately
+7. Add another test for the next small increment of functionality
+8. Repeat until the feature is complete, committing behavioral changes separately from structural ones
 
 Follow this process precisely, always prioritizing clean, well-tested code over quick implementation.
 
-Always write one test at a time, make it run, then improve structure. Always run all the tests (except long-running tests) each time.
+Always write one test at a time, make it run, then improve structure. Always run all the tests (except long-running tests) and `pnpm build` each time before committing.

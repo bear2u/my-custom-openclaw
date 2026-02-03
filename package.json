@@ -1,18 +1,26 @@
 {
-  "name": "slack-connector",
+  "name": "@anthropic/slack-claude-gateway",
   "version": "1.0.0",
   "description": "Slack-Claude Gateway using Claude Code CLI headless mode",
   "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "slack-claude-gateway": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    ".env.example"
+  ],
   "scripts": {
     "dev": "lsof -ti:4900 | xargs kill -9 2>/dev/null; tsx src/index.ts",
     "dev:frontend": "cd frontend && pnpm dev",
     "dev:all": "pnpm dev & pnpm dev:frontend",
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build",
+    "start": "node dist/index.js",
     "mcp": "tsx src/mcp/server.ts",
     "test": "vitest",
     "test:run": "vitest run"
-  },
-  "bin": {
-    "slack-connector-mcp": "./dist/mcp/server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
@@ -20,16 +28,33 @@
     "@slack/web-api": "^7.13.0",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^17.2.3",
+    "prompts": "^2.4.2",
     "ws": "^8.19.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
+    "@types/prompts": "^2.4.9",
     "@types/ws": "^8.18.1",
     "puppeteer": "^24.36.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
-  }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/slack-claude-gateway"
+  },
+  "keywords": [
+    "slack",
+    "claude",
+    "anthropic",
+    "chatbot",
+    "gateway"
+  ],
+  "license": "MIT"
 }
