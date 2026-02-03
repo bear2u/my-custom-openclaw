@@ -1,0 +1,1093 @@
+.test-page {
+  display: flex;
+  height: 100%;
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.test-page.empty {
+  justify-content: center;
+  align-items: center;
+  font-size: 1.2em;
+  color: #666;
+}
+
+/* 에러 표시 */
+.test-error {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  background: #ff4444;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out;
+}
+
+.test-error button {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* 사이드바 */
+.test-sidebar {
+  width: 280px;
+  background: #16162a;
+  border-right: 1px solid #2a2a4a;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.sidebar-header h2 {
+  margin: 0 0 12px 0;
+  font-size: 1.1em;
+  color: #fff;
+}
+
+.btn-new {
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-new:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* 시나리오 목록 */
+.scenario-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.scenario-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #1e1e3a;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scenario-item:hover {
+  background: #252550;
+}
+
+.scenario-item.selected {
+  background: #2a2a5a;
+  border-color: #6366f1;
+}
+
+.scenario-name {
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.scenario-url {
+  font-size: 0.8em;
+  color: #60a5fa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.scenario-meta {
+  font-size: 0.75em;
+  color: #888;
+}
+
+.empty-list,
+.loading {
+  text-align: center;
+  color: #666;
+  padding: 24px;
+}
+
+/* 메인 영역 */
+.test-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.no-selection {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #666;
+  font-size: 1.1em;
+}
+
+/* 시나리오 편집 */
+.scenario-editor {
+  max-width: 800px;
+  padding: 24px;
+}
+
+.scenario-editor h2 {
+  margin: 0 0 24px 0;
+  font-size: 1.3em;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #aaa;
+}
+
+.form-group input,
+.form-group textarea {
+  width: 100%;
+  padding: 12px;
+  background: #1e1e3a;
+  border: 1px solid #3a3a6a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.95em;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.btn-small {
+  padding: 4px 10px;
+  background: #3a3a6a;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.btn-small:hover {
+  background: #4a4a8a;
+}
+
+.step-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.step-number {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #3a3a6a;
+  border-radius: 50%;
+  font-size: 0.85em;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.step-input input {
+  flex: 1;
+}
+
+.btn-remove {
+  padding: 6px 10px;
+  background: #ff4444;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+  flex-shrink: 0;
+}
+
+.btn-remove:hover {
+  background: #ff6666;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-save {
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-save:hover {
+  filter: brightness(1.1);
+}
+
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  padding: 12px 24px;
+  background: #3a3a6a;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+.btn-cancel:hover {
+  background: #4a4a8a;
+}
+
+/* 상세 보기 */
+.scenario-detail-view {
+  padding: 24px;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.detail-header h2 {
+  margin: 0;
+  font-size: 1.5em;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-run {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-run:hover {
+  filter: brightness(1.1);
+}
+
+.btn-run:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-edit {
+  padding: 10px 16px;
+  background: #3a3a6a;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+.btn-edit:hover {
+  background: #4a4a8a;
+}
+
+.btn-delete {
+  padding: 10px 16px;
+  background: #ff4444;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+}
+
+.btn-delete:hover {
+  background: #ff6666;
+}
+
+.detail-description {
+  color: #aaa;
+  margin-bottom: 16px;
+}
+
+.detail-url {
+  padding: 12px;
+  background: #1e1e3a;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+
+.detail-url strong {
+  color: #888;
+}
+
+.detail-section {
+  margin-bottom: 24px;
+}
+
+.detail-section h3 {
+  font-size: 1em;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.detail-step-list,
+.detail-assertion-list {
+  padding-left: 24px;
+  margin: 0;
+}
+
+.detail-step-list li,
+.detail-assertion-list li {
+  padding: 8px 0;
+  color: #ccc;
+}
+
+/* ============================================
+   실행 모드 UI (Maestro 스타일)
+   ============================================ */
+
+.test-page.run-mode {
+  display: flex;
+  height: 100%;
+}
+
+/* 좌측: 스크린샷 패널 */
+.run-screenshot-panel {
+  width: 45%;
+  background: #0d0d1a;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #2a2a4a;
+}
+
+.screenshot-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #16162a;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.btn-back {
+  padding: 6px 12px;
+  background: #3a3a6a;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.btn-back:hover {
+  background: #4a4a8a;
+}
+
+.scenario-title {
+  font-weight: 600;
+  color: #fff;
+}
+
+.screenshot-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+}
+
+.live-screenshot {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.screenshot-placeholder {
+  color: #666;
+  text-align: center;
+  padding: 40px;
+}
+
+/* 우측: 스텝 패널 (코드 에디터 스타일) */
+.run-steps-panel {
+  flex: 1;
+  background: #1e1e2e;
+  display: flex;
+  flex-direction: column;
+}
+
+.steps-header {
+  background: #16162a;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #1e1e2e;
+  border-bottom: 2px solid #6366f1;
+}
+
+.file-name {
+  color: #fff;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.running {
+  background: #fbbf24;
+  color: #1a1a2e;
+}
+
+.status-badge.passed {
+  background: #10b981;
+  color: white;
+}
+
+.status-badge.failed {
+  background: #ff4444;
+  color: white;
+}
+
+/* 코드 스타일 스텝 목록 */
+.steps-code {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  line-height: 1.8;
+}
+
+.code-line {
+  display: flex;
+  align-items: flex-start;
+  padding: 2px 16px;
+  position: relative;
+}
+
+.code-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.step-line {
+  padding-left: 8px;
+}
+
+.step-line.passed {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.step-line.failed {
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.step-line.running {
+  background: rgba(251, 191, 36, 0.15);
+  animation: runningPulse 1s infinite;
+}
+
+@keyframes runningPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.step-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.75em;
+  font-weight: 700;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.step-icon.pending {
+  background: #3a3a6a;
+  color: #888;
+}
+
+.step-icon.running {
+  background: #fbbf24;
+  color: #1a1a2e;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.step-icon.passed {
+  background: #10b981;
+  color: white;
+}
+
+.step-icon.failed {
+  background: #ff4444;
+  color: white;
+}
+
+.step-icon.retrying {
+  background: #fbbf24;
+  color: #1a1a2e;
+}
+
+.line-number {
+  width: 32px;
+  color: #555;
+  text-align: right;
+  margin-right: 16px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.code-dash {
+  color: #888;
+  margin-right: 8px;
+}
+
+.code-key {
+  color: #c792ea;
+  margin-right: 8px;
+}
+
+.code-value {
+  color: #c3e88d;
+}
+
+.code-comment {
+  color: #555;
+}
+
+.step-error-tooltip {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  background: #ff4444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  white-space: nowrap;
+  margin-left: 8px;
+  z-index: 10;
+}
+
+/* 실행 결과 요약 */
+.run-summary {
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a4a;
+  background: #16162a;
+}
+
+.run-summary.passed {
+  border-top-color: #10b981;
+}
+
+.run-summary.failed {
+  border-top-color: #ff4444;
+}
+
+.summary-title {
+  font-weight: 600;
+  font-size: 1.1em;
+  margin-bottom: 8px;
+}
+
+.run-summary.passed .summary-title {
+  color: #10b981;
+}
+
+.run-summary.failed .summary-title {
+  color: #ff4444;
+}
+
+.summary-error {
+  color: #ff8888;
+  font-size: 0.9em;
+  margin-bottom: 12px;
+}
+
+.btn-rerun {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-rerun:hover {
+  filter: brightness(1.1);
+}
+
+/* YAML 에디터 스타일 */
+.yaml-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.yaml-editor {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+  background: #0d0d1a !important;
+  border: 1px solid #3a3a6a !important;
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 400px;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.yaml-editor:focus {
+  border-color: #6366f1 !important;
+  outline: none;
+}
+
+.yaml-help {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: #16162a;
+  border-radius: 8px;
+  font-size: 0.85em;
+}
+
+.yaml-help strong {
+  color: #c792ea;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.yaml-help ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.yaml-help li {
+  margin-bottom: 4px;
+  color: #aaa;
+}
+
+.yaml-help code {
+  background: #2a2a4a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #c3e88d;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+
+/* YAML 미리보기 */
+.detail-yaml {
+  margin-top: 16px;
+}
+
+.detail-yaml h3 {
+  font-size: 1em;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.yaml-preview {
+  background: #0d0d1a;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+  color: #c3e88d;
+}
+
+/* 시나리오 아이템 설명 */
+.scenario-description {
+  font-size: 0.8em;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 중지 버튼 */
+.btn-stop {
+  padding: 6px 12px;
+  background: #ff4444;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+  margin-left: auto;
+}
+
+.btn-stop:hover {
+  background: #ff6666;
+}
+
+/* 상태 배지 추가 스타일 */
+.status-badge.stopped {
+  background: #888;
+  color: white;
+}
+
+/* 명령어 라인 스타일 */
+.code-line.header {
+  color: #888;
+}
+
+.code-line.skipped {
+  opacity: 0.5;
+}
+
+.code-line.warned {
+  background: rgba(251, 191, 36, 0.1);
+}
+
+.step-icon.skipped {
+  background: #555;
+  color: #888;
+}
+
+.step-icon.warned {
+  background: #fbbf24;
+  color: #1a1a2e;
+}
+
+/* 코드 내용 */
+.code-content {
+  color: #e0e0e0;
+}
+
+/* 요약 통계 */
+.summary-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.summary-stats .stat {
+  font-size: 0.9em;
+}
+
+.summary-stats .stat.passed {
+  color: #10b981;
+}
+
+.summary-stats .stat.failed {
+  color: #ff4444;
+}
+
+.summary-stats .stat.skipped {
+  color: #888;
+}
+
+.summary-stats .stat.warned {
+  color: #fbbf24;
+}
+
+.summary-duration {
+  font-size: 0.85em;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+/* 실행 결과 중지 상태 */
+.run-summary.stopped {
+  border-top-color: #888;
+}
+
+.run-summary.stopped .summary-title {
+  color: #888;
+}
+
+/* ==================== */
+/* AI 채팅 패널 스타일 */
+/* ==================== */
+
+.scenario-editor-with-ai {
+  display: flex;
+  gap: 24px;
+  height: 100%;
+  overflow: hidden;
+}
+
+.editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-right: 16px;
+}
+
+.editor-panel h2 {
+  margin: 0 0 20px 0;
+  font-size: 1.3em;
+  color: #e0e0e0;
+}
+
+.ai-chat-panel {
+  width: 380px;
+  min-width: 320px;
+  background: #16162a;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #2a2a4a;
+}
+
+.chat-header {
+  padding: 16px;
+  border-bottom: 1px solid #2a2a4a;
+  background: #1a1a2e;
+}
+
+.chat-title {
+  display: block;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 4px;
+}
+
+.chat-subtitle {
+  font-size: 0.85em;
+  color: #888;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-message {
+  max-width: 95%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.chat-message.user {
+  align-self: flex-end;
+  background: #6366f1;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: #2a2a4a;
+  color: #e0e0e0;
+  border-bottom-left-radius: 4px;
+}
+
+.message-content p {
+  margin: 0 0 8px 0;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.message-yaml-applied {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.2);
+  border-radius: 6px;
+  font-size: 0.85em;
+  color: #10b981;
+}
+
+/* 타이핑 인디케이터 */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  background: #666;
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typing {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.chat-input-area {
+  padding: 12px 16px;
+  border-top: 1px solid #2a2a4a;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 10px 14px;
+  background: #0d0d1a;
+  border: 1px solid #3a3a6a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.9em;
+  resize: none;
+  font-family: inherit;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.chat-input::placeholder {
+  color: #555;
+}
+
+.btn-send {
+  padding: 10px 20px;
+  background: #6366f1;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-send:hover:not(:disabled) {
+  background: #5558e3;
+}
+
+.btn-send:disabled {
+  background: #3a3a5c;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.chat-help {
+  padding: 12px 16px;
+  background: #0d0d1a;
+  border-top: 1px solid #2a2a4a;
+  font-size: 0.8em;
+}
+
+.chat-help strong {
+  color: #888;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.chat-help ul {
+  margin: 0;
+  padding-left: 16px;
+  color: #666;
+}
+
+.chat-help li {
+  margin-bottom: 4px;
+}
+
+/* 편집 모드에서 YAML 에디터 높이 조정 */
+.scenario-editor-with-ai .yaml-editor {
+  min-height: 300px;
+  flex: 1;
+}
+
+.scenario-editor-with-ai .form-actions {
+  margin-top: 16px;
+}

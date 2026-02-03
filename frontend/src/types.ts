@@ -140,3 +140,135 @@ export interface BrowserStatus {
   activeTargetId?: string
   relayRunning: boolean
 }
+
+// 테스트 시나리오 타입 (YAML 기반 Maestro 스타일)
+export interface TestScenario {
+  id: string
+  projectId: string
+  name: string
+  description: string
+  /** YAML 형식의 테스트 정의 */
+  yaml: string
+  createdAt: number
+  updatedAt: number
+}
+
+// 테스트 명령어 타입 (주요 명령어들)
+export type TestCommand =
+  | { command: 'navigate'; url: string }
+  | { command: 'back' }
+  | { command: 'forward' }
+  | { command: 'reload' }
+  | { command: 'click'; selector?: string; text?: string; x?: number; y?: number; optional?: boolean }
+  | { command: 'type'; text: string; selector?: string }
+  | { command: 'clear'; selector: string }
+  | { command: 'pressKey'; key: string }
+  | { command: 'scroll'; direction?: 'up' | 'down' | 'left' | 'right'; distance?: number }
+  | { command: 'scrollTo'; selector: string }
+  | { command: 'wait'; ms: number }
+  | { command: 'waitForElement'; selector?: string; text?: string; timeout?: number }
+  | { command: 'assertVisible'; selector?: string; text?: string }
+  | { command: 'assertNotVisible'; selector?: string; text?: string }
+  | { command: 'assertText'; selector: string; expected: string }
+  | { command: 'assertUrl'; pattern: string }
+  | { command: 'assertTitle'; pattern: string }
+  | { command: 'assertExists'; selector: string }
+  | { command: 'screenshot'; name?: string }
+  | { command: 'log'; message: string }
+  | { command: string; [key: string]: unknown }
+
+// 명령어 실행 결과
+export interface CommandResult {
+  index: number
+  command: TestCommand
+  status: CommandStatus
+  startedAt: number
+  finishedAt?: number
+  duration?: number
+  attempts: number
+  screenshot?: string
+  error?: string
+  warning?: string
+}
+
+export type CommandStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped' | 'warned'
+
+// 테스트 실행 결과
+export interface TestRun {
+  id: string
+  scenarioId: string
+  status: TestRunStatus
+  startedAt: number
+  finishedAt?: number
+  commands: CommandResult[]
+  error?: string
+  duration?: number
+  summary?: {
+    total: number
+    passed: number
+    failed: number
+    skipped: number
+    warned: number
+  }
+}
+
+export type TestRunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error' | 'stopped'
+
+// 테스트 이벤트 타입
+export interface TestRunStartEvent {
+  type: 'test.run.start'
+  runId: string
+  scenarioId: string
+  totalCommands: number
+}
+
+export interface TestCommandStartEvent {
+  type: 'test.command.start'
+  runId: string
+  index: number
+  command: TestCommand
+}
+
+export interface TestCommandScreenshotEvent {
+  type: 'test.command.screenshot'
+  runId: string
+  index: number
+  screenshot: string
+}
+
+export interface TestCommandRetryEvent {
+  type: 'test.command.retry'
+  runId: string
+  index: number
+  attempt: number
+  maxAttempts: number
+  error: string
+}
+
+export interface TestCommandCompleteEvent {
+  type: 'test.command.complete'
+  runId: string
+  index: number
+  result: CommandResult
+}
+
+export interface TestRunCompleteEvent {
+  type: 'test.run.complete'
+  runId: string
+  result: TestRun
+}
+
+export interface TestRunErrorEvent {
+  type: 'test.run.error'
+  runId: string
+  error: string
+}
+
+export type TestEvent =
+  | TestRunStartEvent
+  | TestCommandStartEvent
+  | TestCommandScreenshotEvent
+  | TestCommandRetryEvent
+  | TestCommandCompleteEvent
+  | TestRunCompleteEvent
+  | TestRunErrorEvent

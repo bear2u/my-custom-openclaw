@@ -108,6 +108,11 @@ export function Sidebar({
     navigate(`/kanban/${id}`)
   }
 
+  const handleProjectTest = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigate(`/test/${id}`)
+  }
+
   const handleDeleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (confirm('이 대화를 삭제하시겠습니까?')) {
@@ -192,6 +197,13 @@ export function Sidebar({
                 <span className="item-sub">{project.path}</span>
               </div>
               <div className="item-actions">
+                <button
+                  className="test-btn"
+                  onClick={(e) => handleProjectTest(project.id, e)}
+                  title="E2E 테스트"
+                >
+                  🧪
+                </button>
                 <button
                   className="kanban-btn"
                   onClick={(e) => handleProjectKanban(project.id, e)}

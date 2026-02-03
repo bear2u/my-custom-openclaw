@@ -180,6 +180,7 @@
   flex-shrink: 0;
 }
 
+.test-btn,
 .kanban-btn,
 .settings-btn,
 .delete-btn {
@@ -199,10 +200,16 @@
   flex-shrink: 0;
 }
 
+.list-item:hover .test-btn,
 .list-item:hover .kanban-btn,
 .list-item:hover .settings-btn,
 .list-item:hover .delete-btn {
   opacity: 1;
+}
+
+.test-btn:hover {
+  background: #fbbf241a;
+  color: #fbbf24;
 }
 
 .kanban-btn:hover {

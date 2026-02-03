@@ -17,6 +17,7 @@ describe('buildCliArgs', () => {
     expect(args).toEqual([
       '-p',
       '--output-format', 'json',
+      '--dangerously-skip-permissions',
       '--model', 'sonnet',
       'Hello, Claude!',
     ])
@@ -33,6 +34,7 @@ describe('buildCliArgs', () => {
     expect(args).toEqual([
       '-p',
       '--output-format', 'json',
+      '--dangerously-skip-permissions',
       '--resume', 'session-123',
       'Follow up message',
     ])
@@ -47,6 +49,7 @@ describe('buildCliArgs', () => {
     expect(args).toEqual([
       '-p',
       '--output-format', 'json',
+      '--dangerously-skip-permissions',
       'Hello',
     ])
   })
@@ -88,6 +91,7 @@ describe('runClaude', () => {
     expect(callArgs[1]).toEqual([
       '-p',
       '--output-format', 'json',
+      '--dangerously-skip-permissions',
       '--model', 'sonnet',
       'Test message',
     ])

@@ -20,6 +20,13 @@ import {
 } from '../project/config.js'
 import type { Config } from '../config.js'
 import { browserTool, getRelayServer } from '../browser/index.js'
+import { scenarioDb } from '../test/scenario-db.js'
+import { runTestScenario, stopTestRun } from '../test/runner.js'
+import type {
+  CreateScenarioRequest,
+  UpdateScenarioRequest,
+  TestEvent,
+} from '../test/types.js'
 
 export interface RpcRequest {
   id: string
@@ -717,6 +724,237 @@ export function createHandlers(
       }
       const result = await browserTool.openUrl(url, activate ?? true)
       return result
+    },
+
+    // Test Scenario API
+    'test.scenario.list': async (params) => {
+      const { projectId } = params as { projectId: string }
+      if (!projectId) {
+        throw new Error('projectId is required')
+      }
+      return scenarioDb.getScenariosByProject(projectId)
+    },
+
+    'test.scenario.get': async (params) => {
+      const { id } = params as { id: string }
+      if (!id) {
+        throw new Error('id is required')
+      }
+      const scenario = scenarioDb.getScenario(id)
+      if (!scenario) {
+        throw new Error('Scenario not found')
+      }
+      return scenario
+    },
+
+    'test.scenario.create': async (params) => {
+      const req = params as CreateScenarioRequest
+      if (!req.projectId || !req.name || !req.yaml) {
+        throw new Error('projectId, name, and yaml are required')
+      }
+      return scenarioDb.createScenario({
+        projectId: req.projectId,
+        name: req.name,
+        description: req.description,
+        yaml: req.yaml,
+      })
+    },
+
+    'test.scenario.update': async (params) => {
+      const { id, ...updates } = params as { id: string } & UpdateScenarioRequest
+      if (!id) {
+        throw new Error('id is required')
+      }
+      const scenario = scenarioDb.updateScenario(id, updates)
+      if (!scenario) {
+        throw new Error('Scenario not found')
+      }
+      return scenario
+    },
+
+    'test.scenario.delete': async (params) => {
+      const { id } = params as { id: string }
+      if (!id) {
+        throw new Error('id is required')
+      }
+      const deleted = scenarioDb.deleteScenario(id)
+      return { success: deleted }
+    },
+
+    // Test Run API
+    'test.run.start': async (params, _client, ctx) => {
+      const { scenarioId } = params as { scenarioId: string }
+      if (!scenarioId) {
+        throw new Error('scenarioId is required')
+      }
+
+      // 비동기로 테스트 실행 (바로 run 객체 반환)
+      const run = scenarioDb.createRun(scenarioId)
+
+      // 백그라운드에서 테스트 실행
+      setImmediate(async () => {
+        try {
+          await runTestScenario(scenarioId, {
+            onEvent: (event: TestEvent) => {
+              // 클라이언트에게 이벤트 전송
+              ctx.sendEvent(event.type, event)
+            },
+          })
+        } catch (err) {
+          console.error('[Test] Run error:', err)
+          ctx.sendEvent('test.run.error', {
+            runId: run.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        }
+      })
+
+      return run
+    },
+
+    'test.run.stop': async (params) => {
+      const { runId } = params as { runId: string }
+      if (!runId) {
+        throw new Error('runId is required')
+      }
+      const stopped = stopTestRun(runId)
+      return { success: stopped }
+    },
+
+    'test.run.status': async (params) => {
+      const { runId } = params as { runId: string }
+      if (!runId) {
+        throw new Error('runId is required')
+      }
+      const run = scenarioDb.getRun(runId)
+      if (!run) {
+        throw new Error('Run not found')
+      }
+      return run
+    },
+
+    'test.run.history': async (params) => {
+      const { scenarioId, limit, offset } = params as {
+        scenarioId: string
+        limit?: number
+        offset?: number
+      }
+      if (!scenarioId) {
+        throw new Error('scenarioId is required')
+      }
+      return scenarioDb.getRunsByScenario(scenarioId, limit ?? 20, offset ?? 0)
+    },
+
+    // AI YAML 생성 API
+    'ai.generate.yaml': async (params) => {
+      const { projectId, prompt, currentYaml } = params as {
+        projectId: string
+        prompt: string
+        currentYaml?: string
+      }
+
+      if (!prompt) {
+        throw new Error('prompt is required')
+      }
+
+      // 프로젝트 경로 가져오기 (옵션)
+      let projectPath = ''
+      if (projectId) {
+        const project = await projects.get(projectId)
+        if (project) {
+          projectPath = project.path
+        }
+      }
+
+      const systemPrompt = `당신은 웹 E2E 테스트 시나리오 작성 전문가입니다.
+사용자의 자연어 요청을 분석하여 YAML 형식의 테스트 시나리오를 생성합니다.
+
+## YAML 형식
+\`\`\`yaml
+# 테스트 설명 (주석)
+url: https://example.com   # 필수: 시작 URL
+timeout: 10000             # 선택: 타임아웃 (ms)
+retryCount: 3              # 선택: 재시도 횟수
+screenshotOnFailure: true  # 선택: 실패시 스크린샷
+---
+# 명령어 섹션 (--- 이후)
+- click: "selector"        # CSS 셀렉터로 클릭
+- type: "텍스트"           # 텍스트 입력
+- pressKey: Enter          # 키 입력 (Enter, Tab, Escape 등)
+- wait: 2000               # 대기 (ms)
+- waitForElement: "selector"  # 요소 대기
+- assertVisible: "selector"   # 요소 표시 확인
+- assertText:              # 텍스트 확인
+    selector: ".result"
+    expected: "검색 결과"
+- screenshot: step-name    # 스크린샷
+- scroll: 500              # 스크롤 (픽셀)
+- navigate: https://...    # URL 이동
+\`\`\`
+
+## 규칙
+1. URL은 반드시 포함해야 함
+2. CSS 셀렉터는 가능한 구체적으로 (id, name, class 순 우선)
+3. 한글 텍스트는 따옴표로 감싸기
+4. 주석(#)으로 각 단계 설명 추가
+
+## 응답 형식
+메시지와 함께 YAML을 생성해 주세요. 응답은 다음 JSON 형식으로:
+{"message": "설명 메시지", "yaml": "생성된 YAML 코드"}
+
+${currentYaml ? `\n## 현재 YAML (수정 요청시 참고)\n\`\`\`yaml\n${currentYaml}\n\`\`\`` : ''}`
+
+      try {
+        // Claude API 호출
+        const result = await runClaude({
+          message: prompt,
+          model: 'claude-sonnet-4-20250514',
+          systemPrompt,
+          cwd: projectPath || process.cwd(),
+        })
+
+        if (!result) {
+          throw new Error('AI 응답이 없습니다')
+        }
+
+        const responseText = result.text
+
+        // 응답 파싱 시도
+        try {
+          // JSON 블록 추출 시도
+          const jsonMatch = responseText.match(/\{[\s\S]*"message"[\s\S]*"yaml"[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            return {
+              message: parsed.message || '테스트 시나리오가 생성되었습니다.',
+              yaml: parsed.yaml,
+            }
+          }
+
+          // YAML 블록 추출 시도
+          const yamlMatch = responseText.match(/```yaml\n([\s\S]*?)\n```/)
+          if (yamlMatch) {
+            return {
+              message: responseText.replace(/```yaml[\s\S]*?```/g, '').trim() || '테스트 시나리오가 생성되었습니다.',
+              yaml: yamlMatch[1],
+            }
+          }
+
+          // 그냥 텍스트 응답
+          return {
+            message: responseText,
+            yaml: undefined,
+          }
+        } catch {
+          // 파싱 실패시 원본 응답 반환
+          return {
+            message: responseText,
+            yaml: undefined,
+          }
+        }
+      } catch (err) {
+        throw new Error(`AI 요청 실패: ${err instanceof Error ? err.message : String(err)}`)
+      }
     },
   }
 }

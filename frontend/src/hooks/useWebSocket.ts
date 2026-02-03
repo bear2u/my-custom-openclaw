@@ -22,7 +22,7 @@ const STORAGE_KEYS = {
   SESSION_ID: 'claude-gateway-session-id',
 }
 
-interface UseWebSocketReturn {
+export interface UseWebSocketReturn {
   messages: Message[]
   status: ConnectionStatus
   sessionId: string | null
@@ -39,12 +39,14 @@ interface UseWebSocketReturn {
   loadHistory: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<boolean>
   sendRpc: <T>(method: string, params?: unknown) => Promise<T>
+  subscribeToEvent: (event: string, callback: (data: unknown) => void) => () => void
 }
 
 export function useWebSocket(url: string): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null)
   const pendingRef = useRef<Map<string, (response: RpcResponse) => void>>(new Map())
   const projectIdRef = useRef<string | null>(null)
+  const eventSubscribersRef = useRef<Map<string, Set<(data: unknown) => void>>>(new Map())
 
   const [messages, setMessages] = useState<Message[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
@@ -171,7 +173,13 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       }
 
       default:
-        console.log('[WS] Unknown event:', event.event)
+        // 커스텀 이벤트 구독자들에게 전달
+        const subscribers = eventSubscribersRef.current.get(event.event)
+        if (subscribers) {
+          subscribers.forEach(callback => callback(event.data))
+        } else {
+          console.log('[WS] Unknown event:', event.event)
+        }
     }
   }, [])
 
@@ -334,6 +342,28 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     [sendRpc, sessionId]
   )
 
+  // 이벤트 구독 함수
+  const subscribeToEvent = useCallback(
+    (event: string, callback: (data: unknown) => void): (() => void) => {
+      if (!eventSubscribersRef.current.has(event)) {
+        eventSubscribersRef.current.set(event, new Set())
+      }
+      eventSubscribersRef.current.get(event)!.add(callback)
+
+      // 구독 해제 함수 반환
+      return () => {
+        const subscribers = eventSubscribersRef.current.get(event)
+        if (subscribers) {
+          subscribers.delete(callback)
+          if (subscribers.size === 0) {
+            eventSubscribersRef.current.delete(event)
+          }
+        }
+      }
+    },
+    []
+  )
+
   useEffect(() => {
     connect()
     return () => {
@@ -419,5 +449,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     loadHistory,
     deleteSession,
     sendRpc,
+    subscribeToEvent,
   }
 }

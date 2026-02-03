@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { SettingsPage } from './pages/SettingsPage'
 import { KanbanPage } from './pages/KanbanPage'
+import { TestPage } from './pages/TestPage'
 import type { KanbanTask } from './types'
 import './App.css'
 
@@ -92,6 +93,16 @@ function App() {
             projects={ws.projects}
             sendRpc={ws.sendRpc}
             onAttachTask={handleAttachTask}
+          />
+        }
+      />
+      <Route
+        path="/test/:projectId"
+        element={
+          <TestPage
+            projects={ws.projects}
+            sendRpc={ws.sendRpc}
+            subscribeToEvent={ws.subscribeToEvent}
           />
         }
       />
