@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import type { ClaudeMdInfo, PlanMdInfo, SkillInfo, AgentInfo, Project, SlackConfig } from '../types'
+import type { ClaudeMdInfo, PlanMdInfo, SkillInfo, AgentInfo, Project, SlackConfig, BrowserStatus } from '../types'
 import './SettingsPage.css'
 
 interface SettingsPageProps {
@@ -8,7 +8,7 @@ interface SettingsPageProps {
   sendRpc: <T>(method: string, params?: unknown) => Promise<T>
 }
 
-type TabType = 'claudemd' | 'planmd' | 'skills' | 'agents' | 'slack'
+type TabType = 'claudemd' | 'planmd' | 'skills' | 'agents' | 'slack' | 'browser'
 
 export function SettingsPage({ projects, sendRpc }: SettingsPageProps) {
   const { projectId } = useParams<{ projectId: string }>()
@@ -59,6 +59,14 @@ export function SettingsPage({ projects, sendRpc }: SettingsPageProps) {
   // Slack 매니페스트 상태
   const [manifestBotName, setManifestBotName] = useState('ClaudeBot')
   const [manifestCopied, setManifestCopied] = useState(false)
+
+  // Browser 상태
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus>({
+    connected: false,
+    extensionConnected: false,
+    targets: [],
+    relayRunning: false,
+  })
 
   // 매니페스트 생성 함수
   const generateSlackManifest = (botName: string) => {
@@ -417,6 +425,16 @@ tools: Read, Grep, Glob
     }
   }
 
+  // Browser 상태 로드
+  const loadBrowserStatus = useCallback(async () => {
+    try {
+      const status = await sendRpc<BrowserStatus>('browser.status', {})
+      setBrowserStatus(status)
+    } catch (err) {
+      console.error('Failed to load browser status:', err)
+    }
+  }, [sendRpc])
+
   // 탭 변경 시 데이터 로드
   useEffect(() => {
     if (!projectId) return
@@ -430,8 +448,17 @@ tools: Read, Grep, Glob
       loadAgents()
     } else if (activeTab === 'slack') {
       loadSlackConfig()
+    } else if (activeTab === 'browser') {
+      loadBrowserStatus()
     }
-  }, [activeTab, projectId, loadClaudeMd, loadPlanMd, loadSkills, loadAgents, loadSlackConfig])
+  }, [activeTab, projectId, loadClaudeMd, loadPlanMd, loadSkills, loadAgents, loadSlackConfig, loadBrowserStatus])
+
+  // Browser 탭에서 주기적으로 상태 갱신
+  useEffect(() => {
+    if (activeTab !== 'browser') return
+    const interval = setInterval(loadBrowserStatus, 3000)
+    return () => clearInterval(interval)
+  }, [activeTab, loadBrowserStatus])
 
   // Skill 선택 시 컨텐츠 로드
   useEffect(() => {
@@ -507,6 +534,12 @@ tools: Read, Grep, Glob
           onClick={() => setActiveTab('slack')}
         >
           Slack {slackConfig.enabled && '(ON)'}
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'browser' ? 'active' : ''}`}
+          onClick={() => setActiveTab('browser')}
+        >
+          Browser {browserStatus.extensionConnected ? '(ON)' : '(OFF)'}
         </button>
       </div>
 
@@ -902,6 +935,91 @@ tools: Read, Grep, Glob
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Browser 탭 */}
+        {activeTab === 'browser' && (
+          <div className="tab-content browser-settings">
+            <div className="browser-header">
+              <h2>Browser Relay 상태</h2>
+              <p className="browser-desc">
+                Chrome 확장 프로그램을 통해 AI 에이전트가 브라우저를 제어할 수 있습니다.
+              </p>
+            </div>
+
+            <div className="browser-status-card">
+              <div className="status-row">
+                <span className="status-label">릴레이 서버</span>
+                <span className={`status-badge ${browserStatus.relayRunning ? 'active' : 'inactive'}`}>
+                  {browserStatus.relayRunning ? 'Running' : 'Stopped'}
+                </span>
+              </div>
+
+              <div className="status-row">
+                <span className="status-label">Chrome 확장 프로그램</span>
+                <span className={`status-badge ${browserStatus.extensionConnected ? 'active' : 'inactive'}`}>
+                  {browserStatus.extensionConnected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+
+              <div className="status-row">
+                <span className="status-label">연결된 탭</span>
+                <span className="status-value">{browserStatus.targets.length}개</span>
+              </div>
+            </div>
+
+            {browserStatus.targets.length > 0 && (
+              <div className="browser-targets">
+                <h3>활성 탭</h3>
+                <div className="targets-list">
+                  {browserStatus.targets.map((target) => (
+                    <div key={target.sessionId} className="target-item">
+                      <div className="target-info">
+                        <span className="target-title">
+                          {target.targetInfo.title || '(제목 없음)'}
+                        </span>
+                        <span className="target-url">
+                          {target.targetInfo.url || '(URL 없음)'}
+                        </span>
+                      </div>
+                      <span className={`target-status ${target.targetInfo.attached ? 'attached' : ''}`}>
+                        {target.targetInfo.attached ? 'Attached' : 'Detached'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!browserStatus.extensionConnected && (
+              <div className="browser-setup">
+                <h3>설정 방법</h3>
+                <ol className="setup-steps">
+                  <li>
+                    <code>assets/chrome-extension</code> 폴더를 Chrome에 로드합니다.
+                    <ul>
+                      <li>Chrome에서 <code>chrome://extensions</code> 접속</li>
+                      <li>우측 상단 "개발자 모드" 활성화</li>
+                      <li>"압축해제된 확장 프로그램을 로드합니다" 클릭</li>
+                      <li><code>assets/chrome-extension</code> 폴더 선택</li>
+                    </ul>
+                  </li>
+                  <li>
+                    브라우저에서 원하는 탭을 열고 확장 아이콘을 클릭하여 연결합니다.
+                  </li>
+                  <li>
+                    연결되면 AI 에이전트가 해당 탭을 제어할 수 있습니다.
+                  </li>
+                </ol>
+              </div>
+            )}
+
+            <div className="browser-actions">
+              <button className="refresh-btn" onClick={loadBrowserStatus}>
+                상태 새로고침
+              </button>
             </div>
           </div>
         )}

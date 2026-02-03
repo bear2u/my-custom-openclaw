@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Message } from '../types'
+import { MarkdownContent } from './MarkdownContent'
 import './MessageList.css'
 
 interface MessageListProps {
@@ -39,7 +40,11 @@ export function MessageList({ messages }: MessageListProps) {
               {message.role === 'user' ? 'You' : 'Claude'}
             </div>
             <div className="message-text">
-              {message.content || (message.isStreaming && '...')}
+              {message.content ? (
+                <MarkdownContent content={message.content} />
+              ) : (
+                message.isStreaming && '...'
+              )}
               {message.isStreaming && <span className="typing-indicator">●</span>}
             </div>
           </div>

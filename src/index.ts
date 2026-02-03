@@ -6,6 +6,7 @@ import { ProjectManager } from './project/manager.js'
 import { createSlackApp, createSlackAppFromProjectConfig } from './slack/client.js'
 import { setupSlackHandlers } from './slack/handler.js'
 import { getSlackConfig } from './project/config.js'
+import { startRelayServer, stopRelayServer } from './browser/index.js'
 
 const config = loadConfig()
 const sessions = new SessionManager()
@@ -13,6 +14,8 @@ const projects = new ProjectManager()
 
 const WS_PORT = parseInt(process.env.WS_PORT || '4900', 10)
 const ENABLE_SLACK = process.env.ENABLE_SLACK === 'true'
+const ENABLE_BROWSER_RELAY = process.env.ENABLE_BROWSER_RELAY !== 'false' // 기본값 true
+const BROWSER_RELAY_PORT = parseInt(process.env.BROWSER_RELAY_PORT || '18792', 10)
 
 const gateway = createGatewayServer(WS_PORT, config, sessions, projects)
 
@@ -57,6 +60,18 @@ async function main() {
   gateway.start()
   console.log(`Claude Gateway is running on ws://localhost:${WS_PORT}`)
 
+  // Browser Relay 서버 시작
+  if (ENABLE_BROWSER_RELAY) {
+    try {
+      const relay = await startRelayServer({ port: BROWSER_RELAY_PORT })
+      console.log(`Browser Relay is running at ${relay.baseUrl}`)
+    } catch (err) {
+      console.error('[Browser Relay] Failed to start:', err)
+    }
+  } else {
+    console.log('[Browser Relay] Disabled (set ENABLE_BROWSER_RELAY=true to enable)')
+  }
+
   // Slack 앱 시작
   if (ENABLE_SLACK) {
     // 1. 먼저 프로젝트 설정에서 시도
@@ -76,9 +91,10 @@ async function main() {
   }
 }
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\nShutting down...')
   gateway.stop()
+  await stopRelayServer()
   process.exit(0)
 })
 

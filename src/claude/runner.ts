@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 import { execSync } from 'node:child_process'
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseCliOutput, type CliOutput } from './parser.js'
 
 export interface RunOptions {
@@ -8,6 +10,14 @@ export interface RunOptions {
   sessionId?: string
   timeoutMs?: number
   cwd?: string  // 프로젝트 작업 디렉토리
+  mcpServers?: Record<string, McpServerConfig>  // MCP 서버 설정
+  systemPrompt?: string  // 추가 시스템 프롬프트
+}
+
+export interface McpServerConfig {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
 }
 
 // Claude CLI 경로 해석
@@ -61,12 +71,42 @@ function getClaudePath(): string {
   return cachedClaudePath
 }
 
+// MCP 설정 파일 생성
+function createMcpConfigFile(cwd: string, mcpServers?: Record<string, McpServerConfig>): string | null {
+  if (!mcpServers || Object.keys(mcpServers).length === 0) {
+    return null
+  }
+
+  const configDir = join(cwd, '.claude')
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true })
+  }
+
+  const configPath = join(configDir, 'mcp-servers.json')
+  const config = { mcpServers }
+  writeFileSync(configPath, JSON.stringify(config, null, 2))
+  return configPath
+}
+
 export function buildCliArgs(options: RunOptions): string[] {
   const args = [
     '-p',
     '--output-format', 'json',
     '--dangerously-skip-permissions',
   ]
+
+  // MCP 설정 파일 추가
+  if (options.cwd && options.mcpServers) {
+    const mcpConfigPath = createMcpConfigFile(options.cwd, options.mcpServers)
+    if (mcpConfigPath) {
+      args.push('--mcp-config', mcpConfigPath)
+    }
+  }
+
+  // 시스템 프롬프트 추가
+  if (options.systemPrompt) {
+    args.push('--system-prompt', options.systemPrompt)
+  }
 
   // 모델은 resume 모드가 아닐 때만 지정
   if (!options.sessionId && options.model) {

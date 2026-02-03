@@ -119,3 +119,24 @@ export interface SlackConfig {
   botToken: string
   appToken: string
 }
+
+// Browser Relay 상태 타입
+export interface BrowserTarget {
+  sessionId: string
+  targetId: string
+  targetInfo: {
+    targetId: string
+    type?: string
+    title?: string
+    url?: string
+    attached?: boolean
+  }
+}
+
+export interface BrowserStatus {
+  connected: boolean
+  extensionConnected: boolean
+  targets: BrowserTarget[]
+  activeTargetId?: string
+  relayRunning: boolean
+}
