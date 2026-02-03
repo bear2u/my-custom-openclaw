@@ -139,6 +139,7 @@ export function runClaude(options: RunOptions): Promise<CliOutput | null> {
       cwd,
       env: {
         ...process.env,
+        IS_SANDBOX: '1',  // 샌드박스 모드 설정 (root/sudo 권한 우회)
       },
       stdio: ['inherit', 'pipe', 'pipe'],
     })
@@ -258,6 +259,7 @@ export function runClaudeStreaming(options: StreamingRunOptions): Promise<CliOut
       cwd,
       env: {
         ...process.env,
+        IS_SANDBOX: '1',  // 샌드박스 모드 설정 (root/sudo 권한 우회)
       },
       stdio: ['inherit', 'pipe', 'pipe'],
     })
