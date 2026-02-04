@@ -133,10 +133,13 @@ export interface BrowserTarget {
   }
 }
 
+export type BrowserMode = 'off' | 'puppeteer' | 'relay'
+
 export interface BrowserStatus {
   connected: boolean
   extensionConnected: boolean
   targets: BrowserTarget[]
   activeTargetId?: string
   relayRunning: boolean
+  mode: BrowserMode
 }

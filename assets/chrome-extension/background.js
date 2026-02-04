@@ -29,11 +29,100 @@ const pending = new Map()
 /** @type {Set<number>} openAndAttach로 생성 중인 탭 ID (자동 연결 방지용) */
 const pendingOpenTabs = new Set()
 
+/** @type {number|null} OpenClaw 탭 그룹 ID */
+let openClawGroupId = null
+
+/** @type {string[]} 화이트리스트 도메인 목록 */
+let whitelistDomains = []
+/** @type {boolean} 화이트리스트 자동 연결 활성화 여부 */
+let whitelistEnabled = false
+
 function nowStack() {
   try {
     return new Error().stack || ''
   } catch {
     return ''
+  }
+}
+
+/**
+ * 탭을 OpenClaw 그룹에 추가
+ */
+async function addToOpenClawGroup(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    const windowId = tab.windowId
+
+    // 기존 그룹이 있고 같은 윈도우인지 확인
+    if (openClawGroupId !== null) {
+      try {
+        const group = await chrome.tabGroups.get(openClawGroupId)
+        if (group.windowId === windowId) {
+          // 같은 윈도우면 기존 그룹에 추가
+          await chrome.tabs.group({ tabIds: [tabId], groupId: openClawGroupId })
+          return openClawGroupId
+        }
+      } catch {
+        // 그룹이 더 이상 존재하지 않음
+        openClawGroupId = null
+      }
+    }
+
+    // 새 그룹 생성
+    const groupId = await chrome.tabs.group({ tabIds: [tabId] })
+    await chrome.tabGroups.update(groupId, {
+      title: 'OpenClaw',
+      color: 'orange',
+      collapsed: false
+    })
+    openClawGroupId = groupId
+    console.log('[extension] Created OpenClaw group:', groupId)
+    return groupId
+  } catch (err) {
+    console.log('[extension] Failed to add to group:', err.message)
+    return null
+  }
+}
+
+/**
+ * 탭을 그룹에서 제거
+ */
+async function removeFromGroup(tabId) {
+  try {
+    await chrome.tabs.ungroup(tabId)
+    console.log('[extension] Removed tab from group:', tabId)
+  } catch (err) {
+    // 이미 그룹에 없거나 탭이 닫힌 경우
+    console.log('[extension] Failed to remove from group:', err.message)
+  }
+}
+
+/**
+ * 화이트리스트 설정 로드
+ */
+async function loadWhitelistSettings() {
+  const stored = await chrome.storage.local.get(['whitelist', 'whitelistEnabled'])
+  whitelistDomains = stored.whitelist || []
+  whitelistEnabled = stored.whitelistEnabled !== false // default true when not set
+  console.log('[extension] Whitelist loaded:', whitelistDomains.length, 'domains, enabled:', whitelistEnabled)
+}
+
+/**
+ * URL이 화이트리스트에 있는지 확인
+ */
+function isUrlWhitelisted(url) {
+  if (!whitelistEnabled || whitelistDomains.length === 0) return false
+
+  try {
+    const urlObj = new URL(url)
+    const hostname = urlObj.hostname.toLowerCase()
+
+    return whitelistDomains.some(domain => {
+      // 정확히 일치하거나 서브도메인 포함
+      return hostname === domain || hostname.endsWith('.' + domain)
+    })
+  } catch {
+    return false
   }
 }
 
@@ -243,6 +332,9 @@ async function attachTab(tabId, opts = {}) {
     title: 'OpenClaw Browser Relay: attached (click to detach)',
   })
 
+  // 탭 그룹에 추가
+  await addToOpenClawGroup(tabId)
+
   if (!opts.skipAttachedEvent) {
     sendToRelay({
       method: 'forwardCDPEvent',
@@ -295,6 +387,9 @@ async function detachTab(tabId, reason) {
     tabId,
     title: 'OpenClaw Browser Relay (click to attach/detach)',
   })
+
+  // 탭 그룹에서 제거
+  await removeFromGroup(tabId)
 }
 
 async function connectOrToggleForActiveTab() {
@@ -540,7 +635,7 @@ chrome.runtime.onInstalled.addListener(() => {
 })
 
 // 메시지 핸들러 (options.js에서 호출)
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'attachAllTabs') {
     attachAllTabs().then(sendResponse)
     return true // async response
@@ -548,6 +643,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'detachAllTabs') {
     detachAllTabs().then(sendResponse)
     return true
+  }
+  if (message.action === 'whitelistUpdated') {
+    whitelistDomains = message.whitelist || []
+    whitelistEnabled = message.enabled !== false
+    console.log('[extension] Whitelist updated:', whitelistDomains.length, 'domains, enabled:', whitelistEnabled)
+    sendResponse({ success: true })
+    return false
   }
 })
 
@@ -634,66 +736,40 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // 알람 설정 (10초마다 체크)
 chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.167 }) // 약 10초
 
-// 서비스 워커 시작 시 즉시 연결 시도
-void autoConnectToRelay()
+// 서비스 워커 시작 시 즉시 연결 시도 및 화이트리스트 로드
+void (async () => {
+  await loadWhitelistSettings()
+  await autoConnectToRelay()
+})()
 
-// 탭 활성화 시 자동으로 디버거 연결
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  const tabId = activeInfo.tabId
+// 화이트리스트 기반 자동 연결: 탭 업데이트 시 화이트리스트에 있는 도메인이면 자동 연결
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // 페이지 로드 완료 시에만 처리
+  if (changeInfo.status !== 'complete') return
 
-  // openAndAttach로 생성 중인 탭이면 스킵 (충돌 방지)
-  if (pendingOpenTabs.has(tabId)) {
-    return
-  }
+  // openAndAttach로 생성 중인 탭이면 스킵
+  if (pendingOpenTabs.has(tabId)) return
+
+  // 이미 연결된 탭이면 스킵
+  if (tabs.has(tabId)) return
+
+  // http/https URL만 처리
+  if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) return
+
+  // 화이트리스트에 있는지 확인
+  if (!isUrlWhitelisted(tab.url)) return
 
   // 릴레이 연결 확인
   if (!relayWs || relayWs.readyState !== WebSocket.OPEN) {
     await autoConnectToRelay()
+    if (!relayWs || relayWs.readyState !== WebSocket.OPEN) return
   }
 
-  // 릴레이가 연결되어 있으면 현재 탭에 디버거 자동 연결
-  if (relayWs && relayWs.readyState === WebSocket.OPEN) {
-    try {
-      const tab = await chrome.tabs.get(tabId)
-      // http/https URL만 처리
-      if (tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
-        // 이미 연결된 탭인지 확인
-        if (!tabs.has(tabId)) {
-          console.log('[extension] Auto-attaching to active tab:', tabId, tab.url)
-          await attachTab(tabId)
-        }
-      }
-    } catch (err) {
-      console.log('[extension] Auto-attach failed:', err.message)
-    }
-  }
-})
-
-// 탭 업데이트 시 자동으로 디버거 연결
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete') {
-    // openAndAttach로 생성 중인 탭이면 스킵 (충돌 방지)
-    if (pendingOpenTabs.has(tabId)) {
-      return
-    }
-
-    // 릴레이 연결 확인
-    if (!relayWs || relayWs.readyState !== WebSocket.OPEN) {
-      await autoConnectToRelay()
-    }
-
-    // 릴레이가 연결되어 있고 http/https URL이면 자동 연결
-    if (relayWs && relayWs.readyState === WebSocket.OPEN) {
-      if (tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
-        if (!tabs.has(tabId)) {
-          console.log('[extension] Auto-attaching to updated tab:', tabId, tab.url)
-          try {
-            await attachTab(tabId)
-          } catch (err) {
-            console.log('[extension] Auto-attach failed:', err.message)
-          }
-        }
-      }
-    }
+  // 자동 연결
+  console.log('[extension] Auto-attaching whitelisted tab:', tabId, tab.url)
+  try {
+    await attachTab(tabId)
+  } catch (err) {
+    console.log('[extension] Auto-attach failed:', err.message)
   }
 })

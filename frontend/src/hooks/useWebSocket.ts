@@ -10,6 +10,7 @@ import type {
   Project,
   ChatSession,
   DbMessage,
+  BrowserStatus,
 } from '../types'
 
 function generateId(): string {
@@ -18,7 +19,6 @@ function generateId(): string {
 
 // localStorage 키
 const STORAGE_KEYS = {
-  PROJECT_ID: 'claude-gateway-project-id',
   SESSION_ID: 'claude-gateway-session-id',
 }
 
@@ -26,15 +26,11 @@ interface UseWebSocketReturn {
   messages: Message[]
   status: ConnectionStatus
   sessionId: string | null
-  projectId: string | null
-  projects: Project[]
+  project: Project | null
   sessions: ChatSession[]
+  browserStatus: BrowserStatus | null
   sendMessage: (content: string) => void
   clearMessages: () => void
-  setProjectId: (id: string | null) => void
-  loadProjects: () => Promise<void>
-  addProject: (name: string, path: string, createIfNotExists?: boolean) => Promise<Project>
-  removeProject: (id: string) => Promise<boolean>
   loadSessions: () => Promise<void>
   loadHistory: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<boolean>
@@ -44,18 +40,15 @@ interface UseWebSocketReturn {
 export function useWebSocket(url: string): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null)
   const pendingRef = useRef<Map<string, (response: RpcResponse) => void>>(new Map())
-  const projectIdRef = useRef<string | null>(null)
 
   const [messages, setMessages] = useState<Message[]>([])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [sessionId, setSessionId] = useState<string | null>(() => {
     return localStorage.getItem(STORAGE_KEYS.SESSION_ID)
   })
-  const [projectId, setProjectIdState] = useState<string | null>(() => {
-    return localStorage.getItem(STORAGE_KEYS.PROJECT_ID)
-  })
-  const [projects, setProjects] = useState<Project[]>([])
+  const [project, setProject] = useState<Project | null>(null)
   const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [browserStatus, setBrowserStatus] = useState<BrowserStatus | null>(null)
   const initialLoadDone = useRef(false)
   const [sessionRefreshTrigger, setSessionRefreshTrigger] = useState(0)
 
@@ -222,7 +215,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       setMessages((prev) => [...prev, userMessage])
 
       // Send to server
-      sendRpc('chat.send', { message: content, sessionId, projectId }).catch((err) => {
+      sendRpc('chat.send', { message: content, sessionId }).catch((err) => {
         console.error('[WS] Send error:', err)
         // Add error message
         setMessages((prev) => [
@@ -236,7 +229,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         ])
       })
     },
-    [sendRpc, sessionId, projectId]
+    [sendRpc, sessionId]
   )
 
   const clearMessages = useCallback(() => {
@@ -245,59 +238,15 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     localStorage.removeItem(STORAGE_KEYS.SESSION_ID)
   }, [])
 
-  // projectId setter with localStorage
-  const setProjectId = useCallback((id: string | null) => {
-    setProjectIdState(id)
-    projectIdRef.current = id
-    if (id) {
-      localStorage.setItem(STORAGE_KEYS.PROJECT_ID, id)
-    } else {
-      localStorage.removeItem(STORAGE_KEYS.PROJECT_ID)
-    }
-  }, [])
-
-  // 프로젝트 관련 함수들
-  const loadProjects = useCallback(async () => {
-    try {
-      const list = await sendRpc<Project[]>('project.list')
-      setProjects(list)
-    } catch (err) {
-      console.error('[WS] Failed to load projects:', err)
-    }
-  }, [sendRpc])
-
-  const addProject = useCallback(
-    async (name: string, path: string, createIfNotExists?: boolean): Promise<Project> => {
-      const project = await sendRpc<Project>('project.add', { name, path, createIfNotExists })
-      setProjects((prev) => [project, ...prev])
-      return project
-    },
-    [sendRpc]
-  )
-
-  const removeProject = useCallback(
-    async (id: string): Promise<boolean> => {
-      const result = await sendRpc<{ success: boolean }>('project.remove', { id })
-      if (result.success) {
-        setProjects((prev) => prev.filter((p) => p.id !== id))
-        if (projectId === id) {
-          setProjectId(null)
-        }
-      }
-      return result.success
-    },
-    [sendRpc, projectId]
-  )
-
   // 히스토리 관련 함수들
   const loadSessions = useCallback(async () => {
     try {
-      const list = await sendRpc<ChatSession[]>('history.sessions', { projectId })
+      const list = await sendRpc<ChatSession[]>('history.sessions', {})
       setSessions(list)
     } catch (err) {
       console.error('[WS] Failed to load sessions:', err)
     }
-  }, [sendRpc, projectId])
+  }, [sendRpc])
 
   const loadHistory = useCallback(
     async (targetSessionId: string) => {
@@ -349,13 +298,26 @@ export function useWebSocket(url: string): UseWebSocketReturn {
       initialLoadDone.current = true
 
       try {
-        // 프로젝트 목록 로드
-        const projectList = await sendRpc<Project[]>('project.list')
-        setProjects(projectList)
+        // 프로젝트 정보 로드 (단일 프로젝트)
+        const projectInfo = await sendRpc<{ path: string; name: string }>('project.info')
+        setProject({
+          id: 'default',
+          name: projectInfo.name,
+          path: projectInfo.path,
+          createdAt: Date.now(),
+        })
 
         // 세션 목록 로드
-        const sessionList = await sendRpc<ChatSession[]>('history.sessions', { projectId })
+        const sessionList = await sendRpc<ChatSession[]>('history.sessions', {})
         setSessions(sessionList)
+
+        // 브라우저 상태 로드
+        try {
+          const browserInfo = await sendRpc<BrowserStatus>('browser.status', {})
+          setBrowserStatus(browserInfo)
+        } catch (err) {
+          console.error('[WS] Failed to load browser status:', err)
+        }
 
         // 저장된 sessionId가 있으면 히스토리 로드
         const savedSessionId = localStorage.getItem(STORAGE_KEYS.SESSION_ID)
@@ -384,7 +346,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     }
 
     initializeData()
-  }, [status, sendRpc, projectId])
+  }, [status, sendRpc])
 
   // 세션 목록 새로고침 (채팅 완료 시)
   useEffect(() => {
@@ -392,7 +354,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
 
     const refreshSessions = async () => {
       try {
-        const sessionList = await sendRpc<ChatSession[]>('history.sessions', { projectId: projectIdRef.current })
+        const sessionList = await sendRpc<ChatSession[]>('history.sessions', {})
         setSessions(sessionList)
       } catch (err) {
         console.error('[WS] Failed to refresh sessions:', err)
@@ -406,15 +368,11 @@ export function useWebSocket(url: string): UseWebSocketReturn {
     messages,
     status,
     sessionId,
-    projectId,
-    projects,
+    project,
     sessions,
+    browserStatus,
     sendMessage,
     clearMessages,
-    setProjectId,
-    loadProjects,
-    addProject,
-    removeProject,
     loadSessions,
     loadHistory,
     deleteSession,

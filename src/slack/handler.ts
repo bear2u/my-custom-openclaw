@@ -6,6 +6,13 @@ import { messageQueue, MAX_QUEUE_SIZE, type QueueItem } from './queue.js'
 import { existsSync, readFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import {
+  type CronService,
+  parseCronRequest,
+  isCronRequest,
+  parseCronManageCommand,
+  formatSchedule,
+} from '../cron/index.js'
 
 // Slack 파일 타입
 interface SlackFile {
@@ -98,6 +105,9 @@ const RESTART_KEYWORDS = ['재시작', 'restart', 'reboot', '리부트']
 const QUEUE_STATUS_KEYWORDS = ['큐', 'queue', '대기열']
 const QUEUE_CLEAR_KEYWORDS = ['큐 비우기', 'queue clear', '큐 취소', '대기열 비우기']
 
+// 크론 서비스 인스턴스 (setupSlackHandlers에서 초기화)
+let cronService: CronService | null = null
+
 // 재시작 대기 상태 (채널 → 타임스탬프)
 const restartPending = new Map<string, number>()
 
@@ -139,6 +149,16 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`큐\` / \`queue\` - 대기열 상태 확인
 • \`큐 비우기\` - 대기 중인 작업 모두 취소
 
+*크론/스케줄*
+• \`20분 후에 "알림" 보내줘\` - 일회성 리마인더
+• \`내일 오후 3시에 "보고서" 해줘\` - 특정 시간
+• \`매주 월요일 아침에 "주간보고" 해줘\` - 주간 반복
+• \`매일 저녁 6시에 "정리" 해줘\` - 일간 반복
+• \`크론 목록\` - 등록된 크론 작업 목록
+• \`크론 삭제 <id>\` - 크론 작업 삭제
+• \`크론 실행 <id>\` - 크론 작업 즉시 실행
+• \`크론 상태\` - 스케줄러 상태 확인
+
 *큐 시스템*
 • 처리 중일 때 새 메시지 → 자동으로 대기열에 추가
 • \`!\`로 시작하면 이전 작업 취소 후 바로 시작
@@ -149,6 +169,7 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • :clipboard: - 대기열에 추가됨
 • :sparkles: - 새 세션 시작됨
 • :gear: - 환경설정 모드
+• :clock3: - 크론 작업 등록됨
 • :arrows_counterclockwise: - 재시작 중
 • :x: - 오류 발생/작업 취소됨
 • :question: - 응답 생성 실패
@@ -636,6 +657,107 @@ function isQueueClearRequest(text: string): boolean {
   return QUEUE_CLEAR_KEYWORDS.some(keyword => lowerText.includes(keyword.toLowerCase()))
 }
 
+// 크론 명령어 처리
+async function handleCronCommand(
+  _client: WebClient,
+  channel: string,
+  text: string
+): Promise<{ handled: boolean; message?: string }> {
+  if (!cronService) {
+    return { handled: false }
+  }
+
+  // 크론 관련 키워드가 있는지 확인
+  if (!isCronRequest(text)) {
+    return { handled: false }
+  }
+
+  // 관리 명령어 확인 (목록, 삭제, 실행, 상태)
+  const manageCmd = parseCronManageCommand(text)
+
+  if (manageCmd.action === 'list') {
+    const jobs = await cronService.list()
+    if (jobs.length === 0) {
+      return { handled: true, message: '📋 등록된 크론 작업이 없습니다.' }
+    }
+
+    let msg = '📋 *크론 작업 목록*\n\n'
+    for (const job of jobs) {
+      const status = job.enabled ? '🟢' : '⚪'
+      const schedule = formatSchedule(job.schedule)
+      msg += `${status} \`${job.id.slice(0, 8)}\` *${job.name}*\n`
+      msg += `   ⏰ ${schedule}\n`
+      msg += `   📝 "${job.payload.message.slice(0, 50)}${job.payload.message.length > 50 ? '...' : ''}"\n\n`
+    }
+    msg += '---\n'
+    msg += '`@bot 크론 삭제 <id>` - 작업 삭제\n'
+    msg += '`@bot 크론 실행 <id>` - 즉시 실행'
+
+    return { handled: true, message: msg }
+  }
+
+  if (manageCmd.action === 'status') {
+    const status = cronService.status()
+    const nextRun = status.nextRunAtMs
+      ? new Date(status.nextRunAtMs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
+      : '없음'
+
+    return {
+      handled: true,
+      message: `📊 *크론 상태*\n\n` +
+        `• 스케줄러: ${status.enabled ? '🟢 활성' : '⚪ 비활성'}\n` +
+        `• 작업 수: ${status.jobCount}개\n` +
+        `• 다음 실행: ${nextRun}`,
+    }
+  }
+
+  if (manageCmd.action === 'delete' && manageCmd.jobId) {
+    const success = await cronService.remove(manageCmd.jobId)
+    if (success) {
+      return { handled: true, message: `✅ 크론 작업 \`${manageCmd.jobId}\`이(가) 삭제되었습니다.` }
+    } else {
+      return { handled: true, message: `❌ 크론 작업 \`${manageCmd.jobId}\`을(를) 찾을 수 없습니다.` }
+    }
+  }
+
+  if (manageCmd.action === 'run' && manageCmd.jobId) {
+    const result = await cronService.run(manageCmd.jobId)
+    if (result.ok) {
+      return { handled: true, message: `▶️ 크론 작업 \`${manageCmd.jobId}\` 실행을 시작했습니다.` }
+    } else {
+      return { handled: true, message: `❌ 크론 작업 실행 실패: ${result.error || '알 수 없는 오류'}` }
+    }
+  }
+
+  // 자연어 파싱 (새 작업 추가)
+  const parsed = parseCronRequest(text)
+  if (parsed) {
+    const job = await cronService.add({
+      name: parsed.name,
+      enabled: true,
+      deleteAfterRun: parsed.deleteAfterRun,
+      schedule: parsed.schedule,
+      payload: {
+        kind: 'agentTurn',
+        message: parsed.message,
+      },
+      slackChannelId: channel,
+    })
+
+    const scheduleStr = formatSchedule(job.schedule)
+    const oneTime = parsed.deleteAfterRun ? ' (일회성)' : ''
+
+    return {
+      handled: true,
+      message: `✅ 크론 작업 등록됨 \`${job.id.slice(0, 8)}\`\n` +
+        `⏰ ${scheduleStr}${oneTime}\n` +
+        `📝 "${parsed.message}"`,
+    }
+  }
+
+  return { handled: false }
+}
+
 // 큐에서 꺼낸 메시지 처리
 async function processQueuedMessage(
   client: WebClient,
@@ -715,12 +837,21 @@ async function processQueuedMessage(
 }
 
 // Slack 이벤트 핸들러 설정
-export function setupSlackHandlers(app: App, config: Config): void {
+export function setupSlackHandlers(
+  app: App,
+  config: Config,
+  externalCronService?: CronService
+): void {
   let botUserId: string | null = null
   const envPath = join(process.cwd(), '.env')
 
   // 큐 이벤트 핸들러를 저장할 변수 (클라이언트가 필요하므로 나중에 등록)
   let queueHandlerClient: WebClient | null = null
+
+  // 외부에서 주입된 cronService 사용
+  if (externalCronService) {
+    cronService = externalCronService
+  }
 
   // 큐 이벤트 핸들러 등록 (한 번만)
   function registerQueueHandler(client: WebClient) {
@@ -875,6 +1006,17 @@ export function setupSlackHandlers(app: App, config: Config): void {
       if (isQueueClearRequest(userMessage)) {
         const cleared = messageQueue.clearPending(ctx.channel)
         await sendMessage(client, ctx.channel, `🗑️ ${cleared}개 대기 작업이 취소되었습니다.`)
+        processingMessages.delete(messageKey)
+        return
+      }
+
+      // 크론 명령어 처리
+      const cronResult = await handleCronCommand(client, ctx.channel, userMessage)
+      if (cronResult.handled) {
+        await addReaction(client, ctx.channel, ctx.messageTs, 'clock3')
+        if (cronResult.message) {
+          await sendMessage(client, ctx.channel, cronResult.message)
+        }
         processingMessages.delete(messageKey)
         return
       }

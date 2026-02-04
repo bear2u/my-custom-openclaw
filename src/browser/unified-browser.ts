@@ -230,11 +230,11 @@ export async function getUrl(): Promise<string> {
 /**
  * 페이지 HTML
  */
-export async function getHtml(): Promise<string> {
+export async function getHtml(sessionId?: string): Promise<string> {
   if (currentMode === 'puppeteer') {
     return await puppeteerTool.getHtml()
   } else if (currentMode === 'relay') {
-    return await relayBrowserTool.getHtml()
+    return await relayBrowserTool.getHtml(sessionId)
   }
   throw new Error('Browser not initialized')
 }

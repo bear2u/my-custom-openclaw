@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { createHandlers, type RpcRequest, type RpcResponse, type EventMessage } from './handlers.js'
 import type { SessionManager } from '../session/manager.js'
 import type { Config } from '../config.js'
+import type { CronService } from '../cron/index.js'
 
 export interface WebSocketClient {
   id: string
@@ -22,11 +23,12 @@ export interface GatewayServer {
 export function createGatewayServer(
   port: number,
   config: Config,
-  sessions: SessionManager
+  sessions: SessionManager,
+  cronService?: CronService
 ): GatewayServer {
   const wss = new WebSocketServer({ port })
   const clients = new Map<string, WebSocketClient>()
-  const handlers = createHandlers(config, sessions)
+  const handlers = createHandlers(config, sessions, cronService)
 
   const sendToClient = (clientId: string, message: RpcResponse | EventMessage) => {
     const client = clients.get(clientId)

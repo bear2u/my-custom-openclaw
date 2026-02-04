@@ -1,10 +1,13 @@
 import 'dotenv/config'
-import { loadConfig } from './config.js'
+import { loadConfig, type BrowserMode } from './config.js'
 import { createGatewayServer } from './websocket/server.js'
 import { SessionManager } from './session/manager.js'
 import { createSlackApp } from './slack/client.js'
 import { setupSlackHandlers } from './slack/handler.js'
 import { initBrowser, closeBrowser } from './browser/unified-browser.js'
+import { chatDb } from './db/database.js'
+import { CronService, type CronServiceDeps } from './cron/index.js'
+import { runClaudeStreaming } from './claude/runner.js'
 
 const config = loadConfig()
 const sessions = new SessionManager()
@@ -12,7 +15,40 @@ const sessions = new SessionManager()
 const WS_PORT = parseInt(process.env.WS_PORT || '4900', 10)
 const ENABLE_SLACK = process.env.ENABLE_SLACK === 'true'
 
-const gateway = createGatewayServer(WS_PORT, config, sessions)
+// CronService 초기화 (Slack 클라이언트는 나중에 설정)
+type SlackPostMessageFn = (channel: string, text: string) => Promise<void>
+let slackPostMessage: SlackPostMessageFn | null = null
+
+export function setSlackPostMessage(fn: SlackPostMessageFn): void {
+  slackPostMessage = fn
+}
+
+const cronDeps: CronServiceDeps = {
+  projectPath: config.projectPath,
+  sendToSlack: async (channelId: string, text: string) => {
+    const fn = slackPostMessage
+    if (!fn) {
+      console.error('[Cron] Slack client not available')
+      return
+    }
+    await fn(channelId, text)
+  },
+  runClaude: async (options) => {
+    const result = await runClaudeStreaming({
+      message: options.message,
+      model: options.model || config.claudeModel,
+      timeoutMs: 600000,
+      cwd: options.cwd,
+    })
+    return result ? { text: result.text, sessionId: result.sessionId } : null
+  },
+}
+
+const cronService = new CronService(cronDeps)
+
+export { cronService }
+
+const gateway = createGatewayServer(WS_PORT, config, sessions, cronService)
 
 async function startSlack(): Promise<boolean> {
   if (!config.slackBotToken || !config.slackAppToken) {
@@ -21,9 +57,21 @@ async function startSlack(): Promise<boolean> {
   }
 
   const slackApp = createSlackApp(config)
-  setupSlackHandlers(slackApp, config)
+
+  // Slack 클라이언트를 CronService에 연결
+  setSlackPostMessage(async (channel: string, text: string) => {
+    await slackApp.client.chat.postMessage({ channel, text })
+  })
+
+  // 핸들러 설정 (cronService 전달)
+  setupSlackHandlers(slackApp, config, cronService)
 
   await slackApp.start()
+
+  // CronService 시작
+  await cronService.start()
+  console.log('[Cron] Service started')
+
   console.log('[Slack] Socket Mode connected')
   return true
 }
@@ -50,13 +98,16 @@ async function main() {
   gateway.start()
   console.log(`Claude Gateway is running on ws://localhost:${WS_PORT}`)
 
-  // 브라우저 초기화 (모드에 따라)
-  if (config.browserMode !== 'off') {
+  // 브라우저 초기화 (DB 저장된 설정 우선, 그다음 환경변수)
+  const savedBrowserMode = chatDb.getSetting('browser_mode') as BrowserMode | undefined
+  const effectiveBrowserMode = savedBrowserMode || config.browserMode
+
+  if (effectiveBrowserMode !== 'off') {
     try {
-      await initBrowser(config.browserMode, { port: config.browserRelayPort })
-      console.log(`[Browser] ${config.browserMode} mode started`)
+      await initBrowser(effectiveBrowserMode, { port: config.browserRelayPort })
+      console.log(`[Browser] ${effectiveBrowserMode} mode started${savedBrowserMode ? ' (from saved settings)' : ''}`)
     } catch (err) {
-      console.error(`[Browser] Failed to start ${config.browserMode} mode:`, err)
+      console.error(`[Browser] Failed to start ${effectiveBrowserMode} mode:`, err)
     }
   } else {
     console.log('[Browser] Disabled (set BROWSER_MODE=puppeteer or BROWSER_MODE=relay to enable)')
@@ -75,6 +126,7 @@ async function main() {
 
 process.on('SIGINT', async () => {
   console.log('\nShutting down...')
+  cronService.stop()
   gateway.stop()
   await closeBrowser()
   process.exit(0)
