@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt'
 import type { WebClient } from '@slack/web-api'
 import type { Config } from '../config.js'
 import { runClaudeStreaming } from '../claude/runner.js'
+import { messageQueue, MAX_QUEUE_SIZE, type QueueItem } from './queue.js'
 import { existsSync, readFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -93,6 +94,10 @@ const CONFIG_KEYWORDS = ['환경설정', '설정', 'config', 'settings', '세팅
 // 재시작 키워드
 const RESTART_KEYWORDS = ['재시작', 'restart', 'reboot', '리부트']
 
+// 큐 명령어 키워드
+const QUEUE_STATUS_KEYWORDS = ['큐', 'queue', '대기열']
+const QUEUE_CLEAR_KEYWORDS = ['큐 비우기', 'queue clear', '큐 취소', '대기열 비우기']
+
 // 재시작 대기 상태 (채널 → 타임스탬프)
 const restartPending = new Map<string, number>()
 
@@ -131,14 +136,21 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`환경설정\` / \`config\` - 게이트웨이 설정 확인 및 수정
 • \`재시작\` / \`restart\` - 게이트웨이 재시작
 • \`도움말\` / \`help\` - 이 도움말 표시
+• \`큐\` / \`queue\` - 대기열 상태 확인
+• \`큐 비우기\` - 대기 중인 작업 모두 취소
+
+*큐 시스템*
+• 처리 중일 때 새 메시지 → 자동으로 대기열에 추가
+• \`!\`로 시작하면 이전 작업 취소 후 바로 시작
 
 *리액션 의미*
 • :eyes: - 메시지 처리 중
 • :white_check_mark: - 응답 완료
+• :clipboard: - 대기열에 추가됨
 • :sparkles: - 새 세션 시작됨
 • :gear: - 환경설정 모드
 • :arrows_counterclockwise: - 재시작 중
-• :x: - 오류 발생
+• :x: - 오류 발생/작업 취소됨
 • :question: - 응답 생성 실패
 
 *팁*
@@ -612,10 +624,115 @@ function isHelpRequest(text: string): boolean {
   })
 }
 
+// 큐 상태 확인 요청인지 확인
+function isQueueStatusRequest(text: string): boolean {
+  const lowerText = text.toLowerCase().trim()
+  return QUEUE_STATUS_KEYWORDS.some(keyword => lowerText === keyword.toLowerCase())
+}
+
+// 큐 비우기 요청인지 확인
+function isQueueClearRequest(text: string): boolean {
+  const lowerText = text.toLowerCase().trim()
+  return QUEUE_CLEAR_KEYWORDS.some(keyword => lowerText.includes(keyword.toLowerCase()))
+}
+
+// 큐에서 꺼낸 메시지 처리
+async function processQueuedMessage(
+  client: WebClient,
+  config: Config,
+  item: QueueItem,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    await addReaction(client, item.channel, item.messageTs, 'eyes')
+
+    const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
+
+    const result = await runClaudeStreaming({
+      message: item.text,
+      model: config.claudeModel,
+      timeoutMs: 600000,
+      sessionId: channelSessions.get(item.channel),
+      cwd: config.projectPath,
+      chunkInterval: 5000,
+      signal,
+      onChunk: async (_chunk, accumulated) => {
+        if (signal.aborted) return
+        try {
+          await sendStreamingChunk(client, item.channel, accumulated, streamingState)
+        } catch (err) {
+          console.error('[Queue] Chunk error:', err)
+        }
+      },
+    })
+
+    if (signal.aborted) {
+      await removeReaction(client, item.channel, item.messageTs, 'eyes')
+      await addReaction(client, item.channel, item.messageTs, 'x')
+      return
+    }
+
+    await removeReaction(client, item.channel, item.messageTs, 'eyes')
+
+    if (result?.text) {
+      if (result.sessionId) {
+        channelSessions.set(item.channel, result.sessionId)
+        console.log(`[Queue] Session for channel ${item.channel}: ${result.sessionId}`)
+      }
+      await addReaction(client, item.channel, item.messageTs, 'white_check_mark')
+      const remaining = result.text.slice(streamingState.lastSentLength)
+      if (remaining.length > 0) {
+        await sendMessage(client, item.channel, remaining)
+      }
+      console.log(`[Queue] Response sent (${result.text.length} chars)`)
+    } else {
+      await sendMessage(client, item.channel, '응답을 생성하지 못했습니다.')
+      await addReaction(client, item.channel, item.messageTs, 'question')
+    }
+  } catch (err) {
+    if (!signal.aborted) {
+      console.error('[Queue] Error:', err)
+      await removeReaction(client, item.channel, item.messageTs, 'eyes')
+      await addReaction(client, item.channel, item.messageTs, 'x')
+      await sendMessage(client, item.channel, `오류: ${err instanceof Error ? err.message : 'Unknown'}`)
+    }
+  } finally {
+    // 임시 파일 정리
+    if (item.files && item.files.length > 0) {
+      cleanupTempFiles(item.files)
+    }
+
+    // 다음 작업 시작
+    const next = messageQueue.complete(item.channel)
+    if (next) {
+      const status = messageQueue.getStatus(item.channel)
+      await client.chat.postMessage({
+        channel: item.channel,
+        text: `👀 대기 중인 작업을 시작합니다... (${status.pending.length}개 남음)`,
+      })
+    }
+  }
+}
+
 // Slack 이벤트 핸들러 설정
 export function setupSlackHandlers(app: App, config: Config): void {
   let botUserId: string | null = null
   const envPath = join(process.cwd(), '.env')
+
+  // 큐 이벤트 핸들러를 저장할 변수 (클라이언트가 필요하므로 나중에 등록)
+  let queueHandlerClient: WebClient | null = null
+
+  // 큐 이벤트 핸들러 등록 (한 번만)
+  function registerQueueHandler(client: WebClient) {
+    if (queueHandlerClient) return
+    queueHandlerClient = client
+
+    messageQueue.on('process', (item: QueueItem, signal: AbortSignal) => {
+      console.log(`[Queue] 'process' event received for item: ${item.id}`)
+      processQueuedMessage(queueHandlerClient!, config, item, signal)
+    })
+    console.log('[Slack] Queue handler registered')
+  }
 
   // 봇 ID 가져오기
   app.event('app_home_opened', async ({ client }) => {
@@ -669,16 +786,12 @@ export function setupSlackHandlers(app: App, config: Config): void {
     let downloadedFiles: string[] = []
 
     try {
-      // 처리 중 리액션 추가
-      await addReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-
-      // 사용자 메시지 추출
+      // 사용자 메시지 추출 (리액션은 큐 추가 후 상태에 따라 추가)
       const userMessage = extractUserMessage(text, botUserId)
       console.log(`[Slack] Processing message from ${msg.user}: ${userMessage.slice(0, 100)}...`)
 
       // 도움말 요청 확인
       if (isHelpRequest(userMessage)) {
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
         await addReaction(client, ctx.channel, ctx.messageTs, 'bulb')
         await sendMessage(client, ctx.channel, HELP_MESSAGE)
         processingMessages.delete(messageKey)
@@ -688,7 +801,6 @@ export function setupSlackHandlers(app: App, config: Config): void {
       // 새 세션 요청 확인
       if (isNewSessionRequest(userMessage)) {
         channelSessions.delete(ctx.channel)
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
         await addReaction(client, ctx.channel, ctx.messageTs, 'sparkles')
         await sendMessage(client, ctx.channel, '새로운 세션을 시작합니다.')
         processingMessages.delete(messageKey)
@@ -701,7 +813,6 @@ export function setupSlackHandlers(app: App, config: Config): void {
         // 확인 대기 중
         if (isRestartConfirm(userMessage)) {
           restartPending.delete(ctx.channel)
-          await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
           await addReaction(client, ctx.channel, ctx.messageTs, 'arrows_counterclockwise')
           await sendMessage(client, ctx.channel, '🔄 게이트웨이를 재시작합니다...')
           processingMessages.delete(messageKey)
@@ -714,7 +825,6 @@ export function setupSlackHandlers(app: App, config: Config): void {
           return
         } else if (isRestartCancel(userMessage)) {
           restartPending.delete(ctx.channel)
-          await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
           await sendMessage(client, ctx.channel, '재시작이 취소되었습니다.')
           processingMessages.delete(messageKey)
           return
@@ -723,7 +833,6 @@ export function setupSlackHandlers(app: App, config: Config): void {
 
       if (isRestartRequest(userMessage)) {
         restartPending.set(ctx.channel, Date.now())
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
         await addReaction(client, ctx.channel, ctx.messageTs, 'warning')
         await sendMessage(client, ctx.channel, '⚠️ *게이트웨이를 재시작하시겠습니까?*\n\n모든 활성 연결이 끊어지고 설정이 다시 로드됩니다.\n\n`확인` 또는 `취소`를 입력하세요. (1분 내)')
         processingMessages.delete(messageKey)
@@ -733,7 +842,6 @@ export function setupSlackHandlers(app: App, config: Config): void {
       // 환경설정 대화 처리
       const configResult = await handleConfigConversation(client, ctx.channel, userMessage, envPath)
       if (configResult.handled) {
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
         await addReaction(client, ctx.channel, ctx.messageTs, 'gear')
         if (configResult.message) {
           await sendMessage(client, ctx.channel, configResult.message)
@@ -742,8 +850,41 @@ export function setupSlackHandlers(app: App, config: Config): void {
         return
       }
 
-      // 채널의 기존 세션 ID 가져오기
-      const existingSessionId = channelSessions.get(ctx.channel)
+      // 큐 상태 확인 명령어
+      if (isQueueStatusRequest(userMessage)) {
+        const status = messageQueue.getStatus(ctx.channel)
+        let statusMsg = '📋 *현재 대기열*\n\n'
+        if (status.current) {
+          const elapsed = Math.floor((Date.now() - status.current.enqueuedAt) / 1000)
+          statusMsg += `🔄 처리 중: "${status.current.text.slice(0, 30)}..." (${elapsed}초 전)\n`
+        }
+        if (status.pending.length > 0) {
+          status.pending.forEach((item, idx) => {
+            statusMsg += `${idx + 1}. "${item.text.slice(0, 30)}..."\n`
+          })
+        }
+        if (status.total === 0) {
+          statusMsg = '📋 대기열이 비어 있습니다.'
+        }
+        await sendMessage(client, ctx.channel, statusMsg)
+        processingMessages.delete(messageKey)
+        return
+      }
+
+      // 큐 비우기 명령어
+      if (isQueueClearRequest(userMessage)) {
+        const cleared = messageQueue.clearPending(ctx.channel)
+        await sendMessage(client, ctx.channel, `🗑️ ${cleared}개 대기 작업이 취소되었습니다.`)
+        processingMessages.delete(messageKey)
+        return
+      }
+
+      // 큐 핸들러 등록
+      registerQueueHandler(client)
+
+      // 취소 후 시작 (! 접두사)
+      const cancelPrevious = userMessage.startsWith('!')
+      const cleanText = cancelPrevious ? userMessage.slice(1).trim() : userMessage
 
       // 첨부 파일 다운로드 (이미지만) - 프로젝트 폴더에 저장
       downloadedFiles = []
@@ -761,63 +902,44 @@ export function setupSlackHandlers(app: App, config: Config): void {
       }
 
       // 이미지가 있으면 메시지에 경로 추가
-      let finalMessage = userMessage
+      let finalMessage = cleanText
       if (downloadedFiles.length > 0) {
         const imageList = downloadedFiles.map(f => f).join('\n- ')
-        finalMessage = `${userMessage}\n\n[첨부된 이미지 파일 - Read 도구로 확인해주세요]\n- ${imageList}`
+        finalMessage = `${cleanText}\n\n[첨부된 이미지 파일 - Read 도구로 확인해주세요]\n- ${imageList}`
       }
 
-      // 스트리밍 상태 관리
-      const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
+      // 큐에 추가
+      const result = messageQueue.add({
+        channel: ctx.channel,
+        messageTs: ctx.messageTs,
+        threadTs: ctx.threadTs,
+        userId: msg.user!,
+        text: finalMessage,
+        files: downloadedFiles,
+      }, { cancelCurrent: cancelPrevious })
 
-      // Claude CLI 실행 (스트리밍 모드) - 타임아웃 10분
-      const result = await runClaudeStreaming({
-        message: finalMessage,
-        model: config.claudeModel,
-        timeoutMs: 600000,  // 10분 타임아웃
-        sessionId: existingSessionId,
-        cwd: config.projectPath,
-        chunkInterval: 5000,  // 5초마다 청크 전송
-        onChunk: async (_chunk, accumulated) => {
-          // 새 메시지로 청크 추가
-          try {
-            await sendStreamingChunk(client, ctx.channel, accumulated, streamingState)
-          } catch (err) {
-            console.error('[Slack] Failed to send streaming chunk:', err)
-          }
-        },
-      })
-
-      // 처리 중 리액션 제거
-      await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-
-      if (result && result.text) {
-        // 세션 ID 저장 (새 세션이 생성된 경우)
-        if (result.sessionId) {
-          channelSessions.set(ctx.channel, result.sessionId)
-          console.log(`[Slack] Session for channel ${ctx.channel}: ${result.sessionId}`)
-        }
-
-        // 완료 리액션 추가
-        await addReaction(client, ctx.channel, ctx.messageTs, 'white_check_mark')
-
-        // 마지막으로 전송되지 않은 내용 전송
-        const remainingContent = result.text.slice(streamingState.lastSentLength)
-        if (remainingContent.length > 0) {
-          await sendMessage(client, ctx.channel, remainingContent)
-        }
-
-        console.log(`[Slack] Response sent (${result.text.length} chars, ${streamingState.messageCount + 1} messages)`)
-      } else {
-        // 결과 없음
-        await sendMessage(client, ctx.channel, '응답을 생성하지 못했습니다. 다시 시도해주세요.')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'question')
+      if (result.queueFull) {
+        await addReaction(client, ctx.channel, ctx.messageTs, 'no_entry')
+        await sendMessage(client, ctx.channel, `⚠️ 큐가 가득 찼습니다 (최대 ${MAX_QUEUE_SIZE}개). 잠시 후 다시 시도하세요.`)
+        processingMessages.delete(messageKey)
+        return
       }
+
+      if (result.cancelled) {
+        await sendMessage(client, ctx.channel, '🔄 이전 작업을 취소하고 새 작업을 시작합니다.')
+      } else if (result.position > 0) {
+        await addReaction(client, ctx.channel, ctx.messageTs, 'clipboard')
+        await sendMessage(client, ctx.channel,
+          `📋 대기열에 추가됨 (대기: ${result.position}개)\n` +
+          `이전 작업 취소 후 바로 시작하려면 \`!\`로 시작하세요.`
+        )
+      }
+      // position === 0이면 processQueuedMessage에서 처리 (eyes 리액션 추가됨)
+      processingMessages.delete(messageKey)
     } catch (error) {
       console.error('[Slack] Error processing message:', error)
 
       // 에러 리액션
-      await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
       await addReaction(client, ctx.channel, ctx.messageTs, 'x')
 
       // 에러 메시지 전송
@@ -827,163 +949,11 @@ export function setupSlackHandlers(app: App, config: Config): void {
         ctx.channel,
         `오류가 발생했습니다: ${errorMessage}`
       )
-    } finally {
-      // 처리 완료
-      processingMessages.delete(messageKey)
-
-      // 임시 파일 정리
-      if (downloadedFiles.length > 0) {
-        cleanupTempFiles(downloadedFiles)
-      }
-    }
-  })
-
-  // 앱 멘션 이벤트 (DM이 아닌 채널에서의 멘션)
-  app.event('app_mention', async ({ event, client }) => {
-    // 봇 ID 없으면 가져오기
-    if (!botUserId) {
-      const auth = await client.auth.test()
-      botUserId = auth.user_id as string
-    }
-
-    const ctx: SlackMessageContext = {
-      channel: event.channel,
-      threadTs: event.thread_ts || event.ts,
-      messageTs: event.ts,
-    }
-
-    // 중복 처리 방지
-    const messageKey = `${ctx.channel}-${ctx.messageTs}`
-    if (processingMessages.has(messageKey)) {
-      return
-    }
-    processingMessages.add(messageKey)
-
-    try {
-      await addReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-
-      const userMessage = extractUserMessage(event.text || '', botUserId)
-      console.log(`[Slack] App mention from ${event.user}: ${userMessage.slice(0, 100)}...`)
-
-      // 도움말 요청 확인
-      if (isHelpRequest(userMessage)) {
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'bulb')
-        await sendMessage(client, ctx.channel, HELP_MESSAGE)
-        processingMessages.delete(messageKey)
-        return
-      }
-
-      // 새 세션 요청 확인
-      if (isNewSessionRequest(userMessage)) {
-        channelSessions.delete(ctx.channel)
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'sparkles')
-        await sendMessage(client, ctx.channel, '새로운 세션을 시작합니다.')
-        processingMessages.delete(messageKey)
-        return
-      }
-
-      // 재시작 요청 처리
-      const pendingRestart = restartPending.get(ctx.channel)
-      if (pendingRestart && Date.now() - pendingRestart < 60000) {
-        // 확인 대기 중
-        if (isRestartConfirm(userMessage)) {
-          restartPending.delete(ctx.channel)
-          await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-          await addReaction(client, ctx.channel, ctx.messageTs, 'arrows_counterclockwise')
-          await sendMessage(client, ctx.channel, '🔄 게이트웨이를 재시작합니다...')
-          processingMessages.delete(messageKey)
-
-          // 잠시 후 재시작 (메시지 전송 완료를 위해)
-          setTimeout(() => {
-            console.log('[Slack] Restarting gateway...')
-            process.exit(0)
-          }, 1000)
-          return
-        } else if (isRestartCancel(userMessage)) {
-          restartPending.delete(ctx.channel)
-          await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-          await sendMessage(client, ctx.channel, '재시작이 취소되었습니다.')
-          processingMessages.delete(messageKey)
-          return
-        }
-      }
-
-      if (isRestartRequest(userMessage)) {
-        restartPending.set(ctx.channel, Date.now())
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'warning')
-        await sendMessage(client, ctx.channel, '⚠️ *게이트웨이를 재시작하시겠습니까?*\n\n모든 활성 연결이 끊어지고 설정이 다시 로드됩니다.\n\n`확인` 또는 `취소`를 입력하세요. (1분 내)')
-        processingMessages.delete(messageKey)
-        return
-      }
-
-      // 환경설정 대화 처리
-      const configResult = await handleConfigConversation(client, ctx.channel, userMessage, envPath)
-      if (configResult.handled) {
-        await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'gear')
-        if (configResult.message) {
-          await sendMessage(client, ctx.channel, configResult.message)
-        }
-        processingMessages.delete(messageKey)
-        return
-      }
-
-      // 채널의 기존 세션 ID 가져오기
-      const existingSessionId = channelSessions.get(ctx.channel)
-
-      // 스트리밍 상태 관리
-      const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
-
-      const result = await runClaudeStreaming({
-        message: userMessage,
-        model: config.claudeModel,
-        timeoutMs: 600000,  // 10분 타임아웃
-        sessionId: existingSessionId,
-        cwd: config.projectPath,
-        chunkInterval: 5000,
-        onChunk: async (_chunk, accumulated) => {
-          try {
-            await sendStreamingChunk(client, ctx.channel, accumulated, streamingState)
-          } catch (err) {
-            console.error('[Slack] Failed to send streaming chunk:', err)
-          }
-        },
-      })
-
-      await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-
-      if (result && result.text) {
-        // 세션 ID 저장
-        if (result.sessionId) {
-          channelSessions.set(ctx.channel, result.sessionId)
-          console.log(`[Slack] Session for channel ${ctx.channel}: ${result.sessionId}`)
-        }
-
-        await addReaction(client, ctx.channel, ctx.messageTs, 'white_check_mark')
-
-        // 마지막으로 전송되지 않은 내용 전송
-        const remainingContent = result.text.slice(streamingState.lastSentLength)
-        if (remainingContent.length > 0) {
-          await sendMessage(client, ctx.channel, remainingContent)
-        }
-
-        console.log(`[Slack] Response sent (${result.text.length} chars, ${streamingState.messageCount + 1} messages)`)
-      } else {
-        await sendMessage(client, ctx.channel, '응답을 생성하지 못했습니다.')
-        await addReaction(client, ctx.channel, ctx.messageTs, 'question')
-      }
-    } catch (error) {
-      console.error('[Slack] Error in app_mention:', error)
-      await removeReaction(client, ctx.channel, ctx.messageTs, 'eyes')
-      await addReaction(client, ctx.channel, ctx.messageTs, 'x')
-
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      await sendMessage(client, ctx.channel, `오류: ${errorMessage}`)
-    } finally {
       processingMessages.delete(messageKey)
     }
   })
+
+  // 참고: app_mention 이벤트는 app.message에서 이미 처리하므로 별도 핸들러 불필요
+  // Slack은 봇 멘션 시 message 이벤트와 app_mention 이벤트를 모두 발생시킴
+  // 중복 처리를 피하기 위해 app.message에서만 처리
 }

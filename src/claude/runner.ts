@@ -64,6 +64,12 @@ function resolveClaudePath(): string {
 // 캐시된 경로
 let cachedClaudePath: string | null = null
 
+// UUID 형식 검증
+function isValidUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return uuidRegex.test(str)
+}
+
 function getClaudePath(): string {
   if (!cachedClaudePath) {
     cachedClaudePath = resolveClaudePath()
@@ -114,7 +120,8 @@ export function buildCliArgs(options: RunOptions): string[] {
     args.push('--model', options.model)
   }
 
-  if (options.sessionId) {
+  // 세션 ID가 유효한 UUID 형식인 경우에만 resume 사용
+  if (options.sessionId && isValidUUID(options.sessionId)) {
     args.push('--resume', options.sessionId)
   }
 
@@ -192,6 +199,7 @@ export function runClaude(options: RunOptions): Promise<CliOutput | null> {
 export interface StreamingRunOptions extends RunOptions {
   onChunk?: (chunk: string, accumulated: string) => void  // 청크 콜백
   chunkInterval?: number  // 청크 콜백 최소 간격 (ms, 기본값: 1000)
+  signal?: AbortSignal  // 작업 취소 시그널
 }
 
 // 스트리밍 CLI 인자 빌드 (--output-format stream-json 사용)
@@ -221,7 +229,8 @@ export function buildStreamingCliArgs(options: StreamingRunOptions): string[] {
     args.push('--model', options.model)
   }
 
-  if (options.sessionId) {
+  // 세션 ID가 유효한 UUID 형식인 경우에만 resume 사용
+  if (options.sessionId && isValidUUID(options.sessionId)) {
     args.push('--resume', options.sessionId)
   }
 
@@ -276,6 +285,18 @@ export function runClaudeStreaming(options: StreamingRunOptions): Promise<CliOut
       proc.kill('SIGKILL')
       reject(new Error(`Claude CLI timed out after ${timeoutMs}ms`))
     }, timeoutMs)
+
+    // AbortSignal 처리
+    if (options.signal) {
+      options.signal.addEventListener('abort', () => {
+        if (!killed) {
+          killed = true
+          clearTimeout(timer)
+          proc.kill('SIGTERM')
+          reject(new Error('Request cancelled'))
+        }
+      }, { once: true })
+    }
 
     proc.stdout.on('data', (data: Buffer) => {
       const lines = data.toString().split('\n')
