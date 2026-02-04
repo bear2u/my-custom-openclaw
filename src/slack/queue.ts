@@ -176,6 +176,16 @@ export class MessageQueue extends EventEmitter {
   }
 
   /**
+   * 현재 실행 중인 작업 + 대기 중인 모든 작업 취소
+   * @returns { cancelledCurrent: 현재 작업 취소 여부, clearedPending: 대기열에서 제거된 수 }
+   */
+  clearAll(channel: string): { cancelledCurrent: boolean; clearedPending: number } {
+    const cancelledCurrent = this.cancelCurrent(channel)
+    const clearedPending = this.clearPending(channel)
+    return { cancelledCurrent, clearedPending }
+  }
+
+  /**
    * 큐 상태 조회
    */
   getStatus(channel: string): {

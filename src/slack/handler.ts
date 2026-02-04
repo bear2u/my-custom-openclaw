@@ -103,7 +103,11 @@ const RESTART_KEYWORDS = ['재시작', 'restart', 'reboot', '리부트']
 
 // 큐 명령어 키워드
 const QUEUE_STATUS_KEYWORDS = ['큐', 'queue', '대기열']
-const QUEUE_CLEAR_KEYWORDS = ['큐 비우기', 'queue clear', '큐 취소', '대기열 비우기']
+const QUEUE_CLEAR_KEYWORDS = [
+  '큐 비우기', 'queue clear', '큐 취소', '대기열 비우기',
+  '모든 작업 취소', '전부 취소', '다 취소', '작업 취소', '모두 취소',
+  '작업 중지', '전부 중지', '모두 중지', 'cancel all', 'stop all',
+]
 
 // 크론 서비스 인스턴스 (setupSlackHandlers에서 초기화)
 let cronService: CronService | null = null
@@ -147,7 +151,7 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`재시작\` / \`restart\` - 게이트웨이 재시작
 • \`도움말\` / \`help\` - 이 도움말 표시
 • \`큐\` / \`queue\` - 대기열 상태 확인
-• \`큐 비우기\` - 대기 중인 작업 모두 취소
+• \`큐 비우기\` / \`모든 작업 취소\` - 현재 + 대기 작업 모두 취소
 
 *크론/스케줄*
 • \`20분 후에 "알림" 보내줘\` - 일회성 리마인더
@@ -161,7 +165,7 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 
 *큐 시스템*
 • 처리 중일 때 새 메시지 → 자동으로 대기열에 추가
-• \`!\`로 시작하면 이전 작업 취소 후 바로 시작
+• \`!\`로 시작하면 모든 작업 취소 후 바로 시작
 
 *리액션 의미*
 • :eyes: - 메시지 처리 중
@@ -1003,10 +1007,22 @@ export function setupSlackHandlers(
         return
       }
 
-      // 큐 비우기 명령어
-      if (isQueueClearRequest(userMessage)) {
-        const cleared = messageQueue.clearPending(ctx.channel)
-        await sendMessage(client, ctx.channel, `🗑️ ${cleared}개 대기 작업이 취소되었습니다.`)
+      // 큐 비우기 명령어 (현재 작업 + 대기열 모두 취소)
+      // !로 시작해도 취소 명령어면 취소만 처리 (예: !모두 취소, !큐 비우기)
+      const textForClearCheck = userMessage.startsWith('!') ? userMessage.slice(1).trim() : userMessage
+      if (isQueueClearRequest(textForClearCheck)) {
+        const { cancelledCurrent, clearedPending } = messageQueue.clearAll(ctx.channel)
+        let msg = '🗑️ '
+        if (cancelledCurrent && clearedPending > 0) {
+          msg += `현재 작업과 ${clearedPending}개 대기 작업이 취소되었습니다.`
+        } else if (cancelledCurrent) {
+          msg += '현재 작업이 취소되었습니다.'
+        } else if (clearedPending > 0) {
+          msg += `${clearedPending}개 대기 작업이 취소되었습니다.`
+        } else {
+          msg = '📋 취소할 작업이 없습니다.'
+        }
+        await sendMessage(client, ctx.channel, msg)
         processingMessages.delete(messageKey)
         return
       }
@@ -1025,9 +1041,14 @@ export function setupSlackHandlers(
       // 큐 핸들러 등록
       registerQueueHandler(client)
 
-      // 취소 후 시작 (! 접두사)
+      // 취소 후 시작 (! 접두사) - 현재 작업 + 대기열 모두 취소
       const cancelPrevious = userMessage.startsWith('!')
       const cleanText = cancelPrevious ? userMessage.slice(1).trim() : userMessage
+
+      // ! 접두사면 대기열도 비우기
+      if (cancelPrevious) {
+        messageQueue.clearPending(ctx.channel)
+      }
 
       // 첨부 파일 다운로드 (이미지만) - 프로젝트 폴더에 저장
       downloadedFiles = []
@@ -1069,7 +1090,7 @@ export function setupSlackHandlers(
       }
 
       if (result.cancelled) {
-        await sendMessage(client, ctx.channel, '🔄 이전 작업을 취소하고 새 작업을 시작합니다.')
+        await sendMessage(client, ctx.channel, '🔄 모든 작업을 취소하고 새 작업을 시작합니다.')
       } else if (result.position > 0) {
         await addReaction(client, ctx.channel, ctx.messageTs, 'clipboard')
         await sendMessage(client, ctx.channel,
