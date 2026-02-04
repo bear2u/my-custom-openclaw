@@ -11,9 +11,8 @@ frontend/dist/
 .env.local
 .env.*.local
 
-# Slack config (contains tokens)
-.claude/slack.json
-.claude/settings.local.json
+# Claude config
+.claude/
 
 # Logs
 *.log
