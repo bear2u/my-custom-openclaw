@@ -25,17 +25,18 @@ describe('buildCliArgs', () => {
 
   it('should include --resume for existing session without --model', () => {
     // resume 모드에서는 --model을 생략해야 함 (기존 세션의 모델 사용)
+    const validUuid = '550e8400-e29b-41d4-a716-446655440000'
     const args = buildCliArgs({
       message: 'Follow up message',
       model: 'sonnet',
-      sessionId: 'session-123',
+      sessionId: validUuid,
     })
 
     expect(args).toEqual([
       '-p',
       '--output-format', 'json',
       '--dangerously-skip-permissions',
-      '--resume', 'session-123',
+      '--resume', validUuid,
       'Follow up message',
     ])
   })

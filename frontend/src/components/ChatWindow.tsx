@@ -1,4 +1,4 @@
-import type { Message, ConnectionStatus, Project, KanbanTask } from '../types'
+import type { Message, ConnectionStatus, Project, KanbanTask, BrowserStatus } from '../types'
 import { MessageList } from './MessageList'
 import { MessageInput } from './MessageInput'
 import './ChatWindow.css'
@@ -7,8 +7,8 @@ export interface ChatWindowProps {
   messages: Message[]
   status: ConnectionStatus
   sessionId: string | null
-  projectId: string | null
-  projects: Project[]
+  project: Project | null
+  browserStatus?: BrowserStatus | null
   onSend: (content: string) => void
   onClear: () => void
   attachedTask?: KanbanTask | null
@@ -19,8 +19,8 @@ export function ChatWindow({
   messages,
   status,
   sessionId,
-  projectId,
-  projects,
+  project,
+  browserStatus,
   onSend,
   onClear,
   attachedTask,
@@ -28,10 +28,6 @@ export function ChatWindow({
 }: ChatWindowProps) {
   const isConnected = status === 'connected'
   const isLoading = messages.some((m) => m.isStreaming)
-
-  const currentProject = projectId
-    ? projects.find((p) => p.id === projectId)
-    : null
 
   return (
     <div className="chat-window">
@@ -44,11 +40,19 @@ export function ChatWindow({
             {status === 'disconnected' && '○ 연결 끊김'}
             {status === 'error' && '✕ 오류'}
           </span>
+          {browserStatus && browserStatus.mode !== 'off' && (
+            <span className={`browser-badge ${browserStatus.mode}`}>
+              🌐 {browserStatus.mode === 'puppeteer' ? 'Puppeteer' : 'Relay'}
+              {browserStatus.mode === 'relay' && (
+                browserStatus.extensionConnected ? ' ●' : ' ○'
+              )}
+            </span>
+          )}
         </div>
         <div className="header-right">
-          {currentProject && (
-            <span className="project-badge" title={currentProject.path}>
-              📁 {currentProject.name}
+          {project && (
+            <span className="project-badge" title={project.path}>
+              📁 {project.name}
             </span>
           )}
           {sessionId && (

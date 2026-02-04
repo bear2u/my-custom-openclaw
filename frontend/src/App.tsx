@@ -31,11 +31,7 @@ function ChatPage({
   return (
     <div className="app">
       <Sidebar
-        projects={ws.projects}
-        selectedProjectId={ws.projectId}
-        onProjectSelect={ws.setProjectId}
-        onProjectAdd={ws.addProject}
-        onProjectRemove={ws.removeProject}
+        project={ws.project}
         sessions={ws.sessions}
         currentSessionId={ws.sessionId}
         onSessionSelect={ws.loadHistory}
@@ -46,8 +42,8 @@ function ChatPage({
         messages={ws.messages}
         status={ws.status}
         sessionId={ws.sessionId}
-        projectId={ws.projectId}
-        projects={ws.projects}
+        project={ws.project}
+        browserStatus={ws.browserStatus}
         onSend={ws.sendMessage}
         onClear={ws.clearMessages}
         attachedTask={attachedTask}
@@ -83,13 +79,13 @@ function App() {
       />
       <Route
         path="/settings/:projectId"
-        element={<SettingsPage projects={ws.projects} sendRpc={ws.sendRpc} />}
+        element={<SettingsPage project={ws.project} sendRpc={ws.sendRpc} />}
       />
       <Route
         path="/kanban/:projectId"
         element={
           <KanbanPage
-            projects={ws.projects}
+            project={ws.project}
             sendRpc={ws.sendRpc}
             onAttachTask={handleAttachTask}
           />

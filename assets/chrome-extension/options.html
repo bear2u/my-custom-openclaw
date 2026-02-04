@@ -198,6 +198,22 @@
           </div>
           <div class="status" id="attach-status"></div>
         </div>
+
+        <div class="card">
+          <h2>Auto-connect Whitelist</h2>
+          <p>Automatically attach debugger when visiting these domains. One domain per line (e.g., <code>reddit.com</code>, <code>github.com</code>).</p>
+          <div style="margin-top: 12px;">
+            <textarea id="whitelist" rows="5" style="width: 100%; max-width: 400px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: color-mix(in oklab, canvas 92%, canvasText 8%); color: canvasText; resize: vertical; font-family: ui-monospace, Menlo, Monaco, monospace; font-size: 13px;" placeholder="reddit.com&#10;github.com&#10;example.com"></textarea>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <button id="save-whitelist" type="button">💾 Save Whitelist</button>
+            <label style="display: flex; align-items: center; gap: 6px; margin: 0; cursor: pointer;">
+              <input type="checkbox" id="whitelist-enabled" style="width: auto; cursor: pointer;" />
+              <span style="font-size: 13px;">Enable auto-connect</span>
+            </label>
+          </div>
+          <div class="status" id="whitelist-status"></div>
+        </div>
       </div>
 
       <script type="module" src="options.js"></script>

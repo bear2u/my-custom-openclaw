@@ -91,7 +91,83 @@ async function detachAllTabs() {
   }
 }
 
+// Whitelist functions
+function setWhitelistStatus(kind, message) {
+  const status = document.getElementById('whitelist-status')
+  if (!status) return
+  status.dataset.kind = kind || ''
+  status.textContent = message || ''
+}
+
+async function loadWhitelist() {
+  const stored = await chrome.storage.local.get(['whitelist', 'whitelistEnabled'])
+  const whitelist = stored.whitelist || []
+  const enabled = stored.whitelistEnabled !== false // default true
+
+  document.getElementById('whitelist').value = whitelist.join('\n')
+  document.getElementById('whitelist-enabled').checked = enabled
+}
+
+async function saveWhitelist() {
+  const textarea = document.getElementById('whitelist')
+  const enabledCheckbox = document.getElementById('whitelist-enabled')
+
+  // Parse domains (one per line, trim whitespace, filter empty)
+  const domains = textarea.value
+    .split('\n')
+    .map(d => d.trim().toLowerCase())
+    .filter(d => d.length > 0)
+    // Remove protocol if user added it
+    .map(d => d.replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+
+  const enabled = enabledCheckbox.checked
+
+  await chrome.storage.local.set({
+    whitelist: domains,
+    whitelistEnabled: enabled
+  })
+
+  // Update textarea with cleaned domains
+  textarea.value = domains.join('\n')
+
+  setWhitelistStatus('ok', `Saved ${domains.length} domain(s). Auto-connect: ${enabled ? 'ON' : 'OFF'}`)
+
+  // Notify background script
+  try {
+    await chrome.runtime.sendMessage({ action: 'whitelistUpdated', whitelist: domains, enabled })
+  } catch {
+    // Background might not be ready
+  }
+}
+
+async function toggleWhitelistEnabled() {
+  const enabledCheckbox = document.getElementById('whitelist-enabled')
+  const enabled = enabledCheckbox.checked
+
+  const stored = await chrome.storage.local.get(['whitelist'])
+  const whitelist = stored.whitelist || []
+
+  await chrome.storage.local.set({ whitelistEnabled: enabled })
+
+  setWhitelistStatus('ok', `Auto-connect: ${enabled ? 'ON' : 'OFF'}`)
+
+  // Notify background script
+  try {
+    await chrome.runtime.sendMessage({ action: 'whitelistUpdated', whitelist, enabled })
+  } catch {
+    // Background might not be ready
+  }
+}
+
 document.getElementById('save').addEventListener('click', () => void save())
 document.getElementById('attach-all').addEventListener('click', () => void attachAllTabs())
 document.getElementById('detach-all').addEventListener('click', () => void detachAllTabs())
-void load()
+document.getElementById('save-whitelist').addEventListener('click', () => void saveWhitelist())
+document.getElementById('whitelist-enabled').addEventListener('change', () => void toggleWhitelistEnabled())
+
+// Load all settings
+async function loadAll() {
+  await load()
+  await loadWhitelist()
+}
+void loadAll()

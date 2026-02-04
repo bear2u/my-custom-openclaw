@@ -4,17 +4,15 @@ import type { ClaudeMdInfo, PlanMdInfo, SkillInfo, AgentInfo, Project, SlackConf
 import './SettingsPage.css'
 
 interface SettingsPageProps {
-  projects: Project[]
+  project: Project | null
   sendRpc: <T>(method: string, params?: unknown) => Promise<T>
 }
 
 type TabType = 'claudemd' | 'planmd' | 'skills' | 'agents' | 'slack' | 'browser'
 
-export function SettingsPage({ projects, sendRpc }: SettingsPageProps) {
+export function SettingsPage({ project, sendRpc }: SettingsPageProps) {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
-
-  const project = projects.find((p) => p.id === projectId)
 
   const [activeTab, setActiveTab] = useState<TabType>('claudemd')
   const [loading, setLoading] = useState(false)
@@ -66,7 +64,9 @@ export function SettingsPage({ projects, sendRpc }: SettingsPageProps) {
     extensionConnected: false,
     targets: [],
     relayRunning: false,
+    mode: 'off',
   })
+  const [browserLoading, setBrowserLoading] = useState(false)
 
   // 매니페스트 생성 함수
   const generateSlackManifest = (botName: string) => {
@@ -434,6 +434,38 @@ tools: Read, Grep, Glob
       console.error('Failed to load browser status:', err)
     }
   }, [sendRpc])
+
+  // Browser 시작
+  const startBrowser = async (mode: 'puppeteer' | 'relay') => {
+    setBrowserLoading(true)
+    setError(null)
+    try {
+      await sendRpc('browser.start', { mode })
+      setSuccess(`브라우저 (${mode}) 시작됨`)
+      setTimeout(() => setSuccess(null), 2000)
+      await loadBrowserStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start browser')
+    } finally {
+      setBrowserLoading(false)
+    }
+  }
+
+  // Browser 중지
+  const stopBrowser = async () => {
+    setBrowserLoading(true)
+    setError(null)
+    try {
+      await sendRpc('browser.stop', {})
+      setSuccess('브라우저 중지됨')
+      setTimeout(() => setSuccess(null), 2000)
+      await loadBrowserStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to stop browser')
+    } finally {
+      setBrowserLoading(false)
+    }
+  }
 
   // 탭 변경 시 데이터 로드
   useEffect(() => {
@@ -943,13 +975,20 @@ tools: Read, Grep, Glob
         {activeTab === 'browser' && (
           <div className="tab-content browser-settings">
             <div className="browser-header">
-              <h2>Browser Relay 상태</h2>
+              <h2>Browser 자동화</h2>
               <p className="browser-desc">
-                Chrome 확장 프로그램을 통해 AI 에이전트가 브라우저를 제어할 수 있습니다.
+                Puppeteer 또는 Chrome 확장 프로그램을 통해 AI 에이전트가 브라우저를 제어할 수 있습니다.
               </p>
             </div>
 
             <div className="browser-status-card">
+              <div className="status-row">
+                <span className="status-label">모드</span>
+                <span className={`status-badge ${browserStatus.mode !== 'off' ? 'active' : 'inactive'}`}>
+                  {browserStatus.mode === 'off' ? 'Off' : browserStatus.mode === 'puppeteer' ? 'Puppeteer' : 'Relay'}
+                </span>
+              </div>
+
               <div className="status-row">
                 <span className="status-label">릴레이 서버</span>
                 <span className={`status-badge ${browserStatus.relayRunning ? 'active' : 'inactive'}`}>
@@ -968,6 +1007,43 @@ tools: Read, Grep, Glob
                 <span className="status-label">연결된 탭</span>
                 <span className="status-value">{browserStatus.targets.length}개</span>
               </div>
+            </div>
+
+            {/* 브라우저 제어 버튼 */}
+            <div className="browser-controls">
+              <h3>브라우저 제어</h3>
+              <div className="control-buttons">
+                {browserStatus.mode === 'off' ? (
+                  <>
+                    <button
+                      className="start-btn puppeteer"
+                      onClick={() => startBrowser('puppeteer')}
+                      disabled={browserLoading}
+                    >
+                      {browserLoading ? '시작 중...' : 'Puppeteer 시작'}
+                    </button>
+                    <button
+                      className="start-btn relay"
+                      onClick={() => startBrowser('relay')}
+                      disabled={browserLoading}
+                    >
+                      {browserLoading ? '시작 중...' : 'Relay 시작'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="stop-btn"
+                    onClick={stopBrowser}
+                    disabled={browserLoading}
+                  >
+                    {browserLoading ? '중지 중...' : '브라우저 중지'}
+                  </button>
+                )}
+              </div>
+              <p className="control-hint">
+                <strong>Puppeteer:</strong> 새로운 Chrome 인스턴스를 자동으로 시작합니다.<br />
+                <strong>Relay:</strong> Chrome 확장 프로그램을 통해 기존 브라우저에 연결합니다.
+              </p>
             </div>
 
             {browserStatus.targets.length > 0 && (

@@ -4,7 +4,7 @@ import type { KanbanTask, Project } from '../types'
 import './KanbanPage.css'
 
 interface KanbanPageProps {
-  projects: Project[]
+  project: Project | null
   sendRpc: <T>(method: string, params?: unknown) => Promise<T>
   onAttachTask: (task: KanbanTask) => void
 }
@@ -23,11 +23,9 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: '#f87171',
 }
 
-export function KanbanPage({ projects, sendRpc, onAttachTask }: KanbanPageProps) {
+export function KanbanPage({ project, sendRpc, onAttachTask }: KanbanPageProps) {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
-
-  const project = projects.find((p) => p.id === projectId)
 
   const [tasks, setTasks] = useState<KanbanTask[]>([])
   const [loading, setLoading] = useState(false)

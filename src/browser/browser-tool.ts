@@ -299,8 +299,8 @@ export async function navigate(options: NavigateOptions): Promise<void> {
 /**
  * Execute JavaScript in the page context
  */
-export async function evaluate(options: EvaluateOptions): Promise<unknown> {
-  const sessionId = await getSessionId()
+export async function evaluate(options: EvaluateOptions & { sessionId?: string }): Promise<unknown> {
+  const sessionId = options.sessionId ?? await getSessionId()
 
   const result = (await sendCdpCommand(
     'Runtime.evaluate',
@@ -341,8 +341,8 @@ export async function getUrl(): Promise<string> {
 /**
  * Get page HTML content
  */
-export async function getHtml(): Promise<string> {
-  const result = await evaluate({ script: 'document.documentElement.outerHTML' })
+export async function getHtml(sessionId?: string): Promise<string> {
+  const result = await evaluate({ script: 'document.documentElement.outerHTML', sessionId })
   return String(result ?? '')
 }
 

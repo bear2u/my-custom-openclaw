@@ -145,3 +145,21 @@
   background: #f871711a;
   color: #f87171;
 }
+
+/* 브라우저 상태 뱃지 */
+.browser-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.browser-badge.puppeteer {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.2);
+}
+
+.browser-badge.relay {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.2);
+}

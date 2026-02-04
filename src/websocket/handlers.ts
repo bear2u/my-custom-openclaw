@@ -16,6 +16,7 @@ import {
 } from '../project/config.js'
 import type { Config } from '../config.js'
 import * as browser from '../browser/unified-browser.js'
+import type { CronService } from '../cron/index.js'
 
 export interface RpcRequest {
   id: string
@@ -58,13 +59,243 @@ interface HistoryLoadParams {
   sessionId: string
 }
 
+// 칸반 관련 키워드 감지
+function isKanbanRelated(message: string): boolean {
+  const kanbanKeywords = [
+    '태스크', '할일', '할 일', '투두', 'todo', 'task',
+    '버그', 'bug', '이슈', 'issue',
+    '칸반', 'kanban', '보드', 'board',
+    '목록', '리스트', 'list',
+    '완료', '진행', '진행중', '진행 중', 'done', 'in progress', 'in_progress',
+    '추가', '생성', '만들', 'create', 'add',
+    '수정', '변경', 'update', 'change', 'modify',
+    '삭제', 'delete', 'remove',
+    '우선순위', 'priority', '높음', '중간', '낮음', 'high', 'medium', 'low',
+  ]
+  const lowerMessage = message.toLowerCase()
+  return kanbanKeywords.some(keyword => lowerMessage.includes(keyword))
+}
+
+// 칸반 컨텍스트 생성
+function buildKanbanContext(tasks: Array<{
+  id: string
+  title: string
+  description: string
+  status: 'todo' | 'in_progress' | 'done'
+  priority: 'low' | 'medium' | 'high'
+}>): string {
+  if (tasks.length === 0) {
+    return '[칸반 보드] 현재 등록된 태스크가 없습니다.\n'
+  }
+
+  const statusLabels: Record<string, string> = {
+    todo: '할일',
+    in_progress: '진행중',
+    done: '완료',
+  }
+  const priorityLabels: Record<string, string> = {
+    low: '낮음',
+    medium: '중간',
+    high: '높음',
+  }
+
+  let context = '[칸반 보드 현황]\n'
+
+  // 상태별로 그룹화
+  const grouped: Record<string, typeof tasks> = {
+    todo: [],
+    in_progress: [],
+    done: [],
+  }
+
+  for (const task of tasks) {
+    grouped[task.status].push(task)
+  }
+
+  for (const status of ['todo', 'in_progress', 'done'] as const) {
+    const statusTasks = grouped[status]
+    if (statusTasks.length > 0) {
+      context += `\n## ${statusLabels[status]} (${statusTasks.length}개)\n`
+      statusTasks.forEach((task, idx) => {
+        context += `${idx + 1}. [${task.id.slice(0, 6)}] ${task.title} (우선순위: ${priorityLabels[task.priority]})\n`
+        if (task.description) {
+          context += `   설명: ${task.description}\n`
+        }
+      })
+    }
+  }
+
+  context += '\n---\n'
+  context += '칸반 명령 형식 (응답에 포함하면 자동 실행됩니다):\n'
+  context += '- 태스크 추가: [KANBAN_CREATE:제목:설명:상태:우선순위]\n'
+  context += '- 태스크 수정: [KANBAN_UPDATE:태스크ID:필드=값,...]\n'
+  context += '- 태스크 삭제: [KANBAN_DELETE:태스크ID]\n'
+  context += '- 상태 변경: [KANBAN_STATUS:태스크ID:새상태]\n'
+  context += '예시: [KANBAN_CREATE:로그인 버그 수정:사용자 로그인 시 오류 발생:todo:high]\n'
+  context += '예시: [KANBAN_STATUS:abc123:done]\n'
+  context += '---\n\n'
+
+  return context
+}
+
+// Claude 응답에서 칸반 명령 파싱 및 실행
+interface KanbanCommand {
+  type: 'create' | 'update' | 'delete' | 'status'
+  params: Record<string, string>
+}
+
+function parseKanbanCommands(text: string): KanbanCommand[] {
+  const commands: KanbanCommand[] = []
+
+  // CREATE 명령: [KANBAN_CREATE:제목:설명:상태:우선순위]
+  const createPattern = /\[KANBAN_CREATE:([^:]+):([^:]*):([^:]+):([^\]]+)\]/g
+  let match
+  while ((match = createPattern.exec(text)) !== null) {
+    commands.push({
+      type: 'create',
+      params: {
+        title: match[1].trim(),
+        description: match[2].trim(),
+        status: match[3].trim(),
+        priority: match[4].trim(),
+      }
+    })
+  }
+
+  // STATUS 명령: [KANBAN_STATUS:태스크ID:새상태]
+  const statusPattern = /\[KANBAN_STATUS:([^:]+):([^\]]+)\]/g
+  while ((match = statusPattern.exec(text)) !== null) {
+    commands.push({
+      type: 'status',
+      params: {
+        id: match[1].trim(),
+        status: match[2].trim(),
+      }
+    })
+  }
+
+  // UPDATE 명령: [KANBAN_UPDATE:태스크ID:필드=값,...]
+  const updatePattern = /\[KANBAN_UPDATE:([^:]+):([^\]]+)\]/g
+  while ((match = updatePattern.exec(text)) !== null) {
+    const params: Record<string, string> = { id: match[1].trim() }
+    const fields = match[2].split(',')
+    for (const field of fields) {
+      const [key, value] = field.split('=')
+      if (key && value) {
+        params[key.trim()] = value.trim()
+      }
+    }
+    commands.push({ type: 'update', params })
+  }
+
+  // DELETE 명령: [KANBAN_DELETE:태스크ID]
+  const deletePattern = /\[KANBAN_DELETE:([^\]]+)\]/g
+  while ((match = deletePattern.exec(text)) !== null) {
+    commands.push({
+      type: 'delete',
+      params: { id: match[1].trim() }
+    })
+  }
+
+  return commands
+}
+
+function executeKanbanCommands(commands: KanbanCommand[]): string[] {
+  const results: string[] = []
+
+  for (const cmd of commands) {
+    try {
+      switch (cmd.type) {
+        case 'create': {
+          const id = generateId()
+          const status = (['todo', 'in_progress', 'done'].includes(cmd.params.status)
+            ? cmd.params.status
+            : 'todo') as 'todo' | 'in_progress' | 'done'
+          const priority = (['low', 'medium', 'high'].includes(cmd.params.priority)
+            ? cmd.params.priority
+            : 'medium') as 'low' | 'medium' | 'high'
+
+          chatDb.createTask({
+            id,
+            projectId: 'default',
+            title: cmd.params.title,
+            description: cmd.params.description || '',
+            status,
+            priority,
+          })
+          results.push(`✅ 태스크 생성됨: "${cmd.params.title}" (ID: ${id.slice(0, 6)})`)
+          break
+        }
+        case 'status': {
+          // ID로 태스크 찾기 (부분 ID 지원)
+          const tasks = chatDb.getTasks('default')
+          const task = tasks.find(t => t.id.startsWith(cmd.params.id) || t.id === cmd.params.id)
+          if (task) {
+            const newStatus = cmd.params.status as 'todo' | 'in_progress' | 'done'
+            if (['todo', 'in_progress', 'done'].includes(newStatus)) {
+              chatDb.updateTask(task.id, { status: newStatus })
+              results.push(`✅ 태스크 상태 변경됨: "${task.title}" → ${newStatus}`)
+            }
+          } else {
+            results.push(`❌ 태스크를 찾을 수 없음: ${cmd.params.id}`)
+          }
+          break
+        }
+        case 'update': {
+          const tasks = chatDb.getTasks('default')
+          const task = tasks.find(t => t.id.startsWith(cmd.params.id) || t.id === cmd.params.id)
+          if (task) {
+            const updates: Record<string, string> = {}
+            if (cmd.params.title) updates.title = cmd.params.title
+            if (cmd.params.description) updates.description = cmd.params.description
+            if (cmd.params.priority) updates.priority = cmd.params.priority
+            if (cmd.params.status) updates.status = cmd.params.status
+            chatDb.updateTask(task.id, updates)
+            results.push(`✅ 태스크 수정됨: "${task.title}"`)
+          } else {
+            results.push(`❌ 태스크를 찾을 수 없음: ${cmd.params.id}`)
+          }
+          break
+        }
+        case 'delete': {
+          const tasks = chatDb.getTasks('default')
+          const task = tasks.find(t => t.id.startsWith(cmd.params.id) || t.id === cmd.params.id)
+          if (task) {
+            chatDb.deleteTask(task.id)
+            results.push(`✅ 태스크 삭제됨: "${task.title}"`)
+          } else {
+            results.push(`❌ 태스크를 찾을 수 없음: ${cmd.params.id}`)
+          }
+          break
+        }
+      }
+    } catch (err) {
+      results.push(`❌ 명령 실행 오류: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  return results
+}
+
+// 칸반 명령을 응답에서 제거 (사용자에게 보여줄 때 깔끔하게)
+function removeKanbanCommands(text: string): string {
+  return text
+    .replace(/\[KANBAN_CREATE:[^\]]+\]/g, '')
+    .replace(/\[KANBAN_STATUS:[^\]]+\]/g, '')
+    .replace(/\[KANBAN_UPDATE:[^\]]+\]/g, '')
+    .replace(/\[KANBAN_DELETE:[^\]]+\]/g, '')
+    .replace(/\n{3,}/g, '\n\n') // 연속 빈 줄 정리
+    .trim()
+}
+
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15)
 }
 
 export function createHandlers(
   config: Config,
-  sessions: SessionManager
+  sessions: SessionManager,
+  cronService?: CronService
 ): Record<string, RpcHandler> {
   // 단일 프로젝트 경로 (config에서 가져옴)
   const projectPath = config.projectPath
@@ -121,7 +352,8 @@ export function createHandlers(
           lowerMessage.includes('스샷') || lowerMessage.includes('screenshot') ||
           lowerMessage.includes('찍어') || lowerMessage.includes('캡처')
 
-        let browserResult = ''
+        let browserContext = ''
+        let pageContent = ''
 
         console.log('[Handler] Command detection:', { hasOpenCommand, hasScreenshotCommand })
 
@@ -147,12 +379,35 @@ export function createHandlers(
             try {
               console.log('[Handler] Opening URL via browser automation:', targetUrl)
               const openResult = await browser.openUrl(targetUrl, true)
-              browserResult += `브라우저에서 ${targetUrl}을 열었습니다. (Tab ID: ${openResult.tabId})\n`
+              browserContext += `[브라우저] ${targetUrl}을 열었습니다.\n`
               console.log('[Handler] URL opened:', openResult)
+
+              // 페이지 로드 대기
+              await new Promise(r => setTimeout(r, 3000))
+
+              // 페이지 텍스트 내용 가져오기 (새로 연 탭의 sessionId 사용)
+              try {
+                const html = await browser.getHtml(openResult.sessionId)
+                // HTML에서 텍스트 추출 (간단한 방법)
+                const textContent = html
+                  .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                  .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                  .replace(/<[^>]+>/g, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                  .slice(0, 10000) // 최대 10000자로 제한
+
+                if (textContent) {
+                  pageContent = textContent
+                  browserContext += `[페이지 내용]\n${pageContent}\n\n`
+                  console.log('[Handler] Page content extracted, length:', pageContent.length)
+                }
+              } catch (err) {
+                console.error('[Handler] Failed to get page content:', err)
+              }
 
               // 스크린샷도 요청했으면 촬영
               if (hasScreenshotCommand) {
-                await new Promise(r => setTimeout(r, 2000)) // 페이지 로드 대기
                 const screenshot = await browser.screenshot({
                   format: 'png',
                   sessionId: openResult.sessionId
@@ -169,12 +424,12 @@ export function createHandlers(
                 }
                 writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'))
 
-                browserResult += `\n스크린샷을 촬영했습니다:\n![Screenshot](http://127.0.0.1:${config.browserRelayPort}/screenshots/${filename})\n`
+                browserContext += `[스크린샷] http://127.0.0.1:${config.browserRelayPort}/screenshots/${filename}\n`
                 console.log('[Handler] Screenshot saved:', filePath)
               }
             } catch (err) {
               console.error('[Handler] Browser automation error:', err)
-              browserResult += `브라우저 자동화 오류: ${err instanceof Error ? err.message : String(err)}\n`
+              browserContext += `[브라우저 오류] ${err instanceof Error ? err.message : String(err)}\n`
             }
           } else if (hasScreenshotCommand && !targetUrl) {
             // URL 없이 스크린샷만 요청
@@ -191,41 +446,36 @@ export function createHandlers(
               }
               writeFileSync(filePath, Buffer.from(screenshot.data, 'base64'))
 
-              browserResult += `스크린샷을 촬영했습니다:\n![Screenshot](http://127.0.0.1:${config.browserRelayPort}/screenshots/${filename})\n`
+              browserContext += `[스크린샷] http://127.0.0.1:${config.browserRelayPort}/screenshots/${filename}\n`
               console.log('[Handler] Screenshot saved:', filePath)
             } catch (err) {
               console.error('[Handler] Screenshot error:', err)
-              browserResult += `스크린샷 오류: ${err instanceof Error ? err.message : String(err)}\n`
+              browserContext += `[스크린샷 오류] ${err instanceof Error ? err.message : String(err)}\n`
             }
           }
         }
 
-        console.log('[Handler] Calling runClaude...')
-
-        // 브라우저 자동화 결과가 있으면 바로 응답 (Claude 호출 안함)
-        if (browserResult) {
-          // 세션 ID가 없으면 새로 생성
-          const finalSessionId = currentSessionId || generateId()
-
-          // DB에 세션 확인/생성 및 메시지 저장
-          chatDb.ensureSession(finalSessionId)
-          chatDb.saveMessage(userMsgId, finalSessionId, 'user', message, userTimestamp)
-          chatDb.saveMessage(generateId(), finalSessionId, 'assistant', browserResult, Date.now())
-
-          console.log('[Handler] Sending browser result directly')
-          ctx.sendEvent('chat.done', {
-            sessionId: finalSessionId,
-            text: browserResult,
-          })
-
-          return {
-            sessionId: finalSessionId,
-            text: browserResult,
-          }
+        // 브라우저 컨텍스트가 있으면 메시지에 추가
+        let finalMessage = message
+        if (browserContext) {
+          finalMessage = `${browserContext}\n---\n사용자 요청: ${message}`
+          console.log('[Handler] Enhanced message with browser context')
         }
 
+        // 칸반 관련 요청이면 컨텍스트 추가
+        let kanbanContext = ''
+        if (isKanbanRelated(message)) {
+          console.log('[Handler] Kanban-related request detected')
+          const tasks = chatDb.getTasks('default')
+          kanbanContext = buildKanbanContext(tasks)
+          finalMessage = `${kanbanContext}\n사용자 요청: ${finalMessage}`
+          console.log('[Handler] Added kanban context, tasks count:', tasks.length)
+        }
+
+        console.log('[Handler] Calling runClaude...')
+
         const result = await runClaude({
-          message,
+          message: finalMessage,
           model: config.claudeModel,
           sessionId: currentSessionId,
           cwd: projectPath,
@@ -241,22 +491,36 @@ export function createHandlers(
             sessions.set(client.id, result.sessionId)
           }
 
+          // Claude 응답에서 칸반 명령 파싱 및 실행
+          let responseText = result.text
+          const kanbanCommands = parseKanbanCommands(responseText)
+          if (kanbanCommands.length > 0) {
+            console.log('[Handler] Found kanban commands:', kanbanCommands.length)
+            const commandResults = executeKanbanCommands(kanbanCommands)
+            // 명령 태그 제거하고 실행 결과 추가
+            responseText = removeKanbanCommands(responseText)
+            if (commandResults.length > 0) {
+              responseText += '\n\n---\n**칸반 작업 결과:**\n' + commandResults.join('\n')
+            }
+            console.log('[Handler] Kanban commands executed:', commandResults)
+          }
+
           // DB에 세션 확인/생성 및 메시지 저장
           if (finalSessionId) {
             chatDb.ensureSession(finalSessionId)
             chatDb.saveMessage(userMsgId, finalSessionId, 'user', message, userTimestamp)
-            chatDb.saveMessage(generateId(), finalSessionId, 'assistant', result.text, Date.now())
+            chatDb.saveMessage(generateId(), finalSessionId, 'assistant', responseText, Date.now())
           }
 
           console.log('[Handler] Sending chat.done event')
           ctx.sendEvent('chat.done', {
             sessionId: finalSessionId,
-            text: result.text,
+            text: responseText,
           })
 
           return {
             sessionId: finalSessionId,
-            text: result.text,
+            text: responseText,
           }
         }
 
@@ -510,6 +774,246 @@ export function createHandlers(
       }
       const result = await browser.openUrl(url, activate ?? true)
       return result
+    },
+
+    // 브라우저 시작/중지
+    'browser.start': async (params) => {
+      const { mode, save } = (params || {}) as { mode?: 'puppeteer' | 'relay'; save?: boolean }
+      const targetMode = mode || config.browserMode
+      if (targetMode === 'off') {
+        throw new Error('Browser mode is set to off in config')
+      }
+      if (browser.isInitialized()) {
+        throw new Error('Browser is already running')
+      }
+      await browser.initBrowser(targetMode, { port: config.browserRelayPort })
+
+      // 설정 저장 (save가 true이거나 기본값)
+      if (save !== false) {
+        chatDb.setSetting('browser_mode', targetMode)
+      }
+
+      return { success: true, mode: targetMode }
+    },
+
+    'browser.stop': async (params) => {
+      const { save } = (params || {}) as { save?: boolean }
+      if (!browser.isInitialized()) {
+        throw new Error('Browser is not running')
+      }
+      await browser.closeBrowser()
+
+      // 설정 저장 (save가 true이거나 기본값)
+      if (save !== false) {
+        chatDb.setSetting('browser_mode', 'off')
+      }
+
+      return { success: true }
+    },
+
+    // 브라우저 설정 조회
+    'browser.config.get': async () => {
+      const savedMode = chatDb.getSetting('browser_mode') as 'off' | 'puppeteer' | 'relay' | undefined
+      return {
+        savedMode: savedMode || 'off',
+        envMode: config.browserMode,
+      }
+    },
+
+    // 브라우저 설정 저장
+    'browser.config.save': async (params) => {
+      const { mode } = params as { mode: 'off' | 'puppeteer' | 'relay' }
+      if (!mode || !['off', 'puppeteer', 'relay'].includes(mode)) {
+        throw new Error('Invalid mode')
+      }
+      chatDb.setSetting('browser_mode', mode)
+      return { success: true, mode }
+    },
+
+    // === 칸반 태스크 API ===
+
+    // 태스크 목록 조회
+    'kanban.tasks.list': async (params) => {
+      const { projectId } = (params || {}) as { projectId?: string }
+      // 단일 프로젝트 모드이므로 projectId가 없으면 'default' 사용
+      const pid = projectId || 'default'
+      return chatDb.getTasks(pid)
+    },
+
+    // 태스크 생성
+    'kanban.tasks.create': async (params) => {
+      const { projectId, title, description, status, priority, slackMessageTs, slackChannelId } = params as {
+        projectId?: string
+        title: string
+        description?: string
+        status?: 'todo' | 'in_progress' | 'done'
+        priority?: 'low' | 'medium' | 'high'
+        slackMessageTs?: string
+        slackChannelId?: string
+      }
+
+      if (!title) {
+        throw new Error('title is required')
+      }
+
+      const id = generateId()
+      const task = chatDb.createTask({
+        id,
+        projectId: projectId || 'default',
+        title,
+        description,
+        status,
+        priority,
+        slackMessageTs,
+        slackChannelId,
+      })
+
+      return task
+    },
+
+    // 태스크 수정
+    'kanban.tasks.update': async (params) => {
+      const { id, title, description, status, priority, position } = params as {
+        id: string
+        title?: string
+        description?: string
+        status?: 'todo' | 'in_progress' | 'done'
+        priority?: 'low' | 'medium' | 'high'
+        position?: number
+      }
+
+      if (!id) {
+        throw new Error('id is required')
+      }
+
+      const updated = chatDb.updateTask(id, { title, description, status, priority, position })
+      if (!updated) {
+        throw new Error('Task not found')
+      }
+
+      return updated
+    },
+
+    // 태스크 삭제
+    'kanban.tasks.delete': async (params) => {
+      const { id } = params as { id: string }
+
+      if (!id) {
+        throw new Error('id is required')
+      }
+
+      const deleted = chatDb.deleteTask(id)
+      return { success: deleted }
+    },
+
+    // 단일 태스크 조회
+    'kanban.tasks.get': async (params) => {
+      const { id } = params as { id: string }
+
+      if (!id) {
+        throw new Error('id is required')
+      }
+
+      const task = chatDb.getTask(id)
+      if (!task) {
+        throw new Error('Task not found')
+      }
+
+      return task
+    },
+
+    // === 크론 작업 API ===
+
+    // 크론 작업 목록 조회
+    'cron.list': async (params) => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      const { includeDisabled } = (params || {}) as { includeDisabled?: boolean }
+      return cronService.list({ includeDisabled })
+    },
+
+    // 크론 작업 추가
+    'cron.add': async (params) => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      const { name, schedule, payload, slackChannelId, enabled, deleteAfterRun } = params as {
+        name: string
+        schedule: { kind: 'at'; atMs: number } | { kind: 'every'; everyMs: number } | { kind: 'cron'; expr: string; tz?: string }
+        payload: { kind: 'notify' | 'agent'; message: string; model?: string }
+        slackChannelId: string
+        enabled?: boolean
+        deleteAfterRun?: boolean
+      }
+
+      if (!name) throw new Error('name is required')
+      if (!schedule) throw new Error('schedule is required')
+      if (!payload) throw new Error('payload is required')
+      if (!slackChannelId) throw new Error('slackChannelId is required')
+
+      return cronService.add({
+        name,
+        schedule,
+        payload,
+        slackChannelId,
+        enabled: enabled !== false,
+        deleteAfterRun: deleteAfterRun || false,
+      })
+    },
+
+    // 크론 작업 수정
+    'cron.update': async (params) => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      const { id, ...patch } = params as {
+        id: string
+        name?: string
+        schedule?: { kind: 'at'; atMs: number } | { kind: 'every'; everyMs: number } | { kind: 'cron'; expr: string; tz?: string }
+        payload?: { kind: 'notify' | 'agent'; message: string; model?: string }
+        slackChannelId?: string
+        enabled?: boolean
+        deleteAfterRun?: boolean
+      }
+
+      if (!id) throw new Error('id is required')
+
+      const updated = await cronService.update(id, patch)
+      if (!updated) {
+        throw new Error('Cron job not found')
+      }
+      return updated
+    },
+
+    // 크론 작업 삭제
+    'cron.remove': async (params) => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      const { id } = params as { id: string }
+      if (!id) throw new Error('id is required')
+
+      return cronService.remove(id)
+    },
+
+    // 크론 작업 즉시 실행
+    'cron.run': async (params) => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      const { id } = params as { id: string }
+      if (!id) throw new Error('id is required')
+
+      return cronService.run(id)
+    },
+
+    // 크론 상태 조회
+    'cron.status': async () => {
+      if (!cronService) {
+        throw new Error('Cron service not initialized')
+      }
+      return cronService.status()
     },
   }
 }

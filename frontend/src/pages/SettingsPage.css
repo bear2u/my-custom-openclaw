@@ -915,3 +915,99 @@
   background: linear-gradient(135deg, #4a4a6c 0%, #3a3a5c 100%);
   border-color: #6366f1;
 }
+
+/* Browser Controls */
+.browser-controls {
+  background: #1a1a2e;
+  border-radius: 12px;
+  border: 1px solid #333;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.browser-controls h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.control-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.start-btn {
+  flex: 1;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  max-width: 200px;
+}
+
+.start-btn.puppeteer {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: white;
+}
+
+.start-btn.puppeteer:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5558e3 0%, #4338ca 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.start-btn.relay {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+}
+
+.start-btn.relay:hover:not(:disabled) {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+}
+
+.start-btn:disabled,
+.stop-btn:disabled {
+  background: #3a3a5c;
+  color: #666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.stop-btn {
+  flex: 1;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  max-width: 200px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+}
+
+.stop-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.control-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #888;
+  line-height: 1.6;
+}
+
+.control-hint strong {
+  color: #aaa;
+}
