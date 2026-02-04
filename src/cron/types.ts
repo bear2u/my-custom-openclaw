@@ -8,11 +8,15 @@ export type CronSchedule =
   | { kind: 'every'; everyMs: number }              // 반복 (매 N분)
   | { kind: 'cron'; expr: string; tz?: string }     // Cron 표현식
 
-// 페이로드 타입 (agentTurn만 지원 - Claude 실행)
+// 페이로드 타입
+// - notify: 단순 알림 (Claude 호출 없이 메시지만 전달)
+// - agent: AI 응답 (Claude를 통해 응답 생성)
+export type CronPayloadKind = 'notify' | 'agent'
+
 export interface CronPayload {
-  kind: 'agentTurn'
-  message: string       // Claude에게 보낼 프롬프트
-  model?: string        // 모델 오버라이드 (sonnet, opus 등)
+  kind: CronPayloadKind
+  message: string       // 알림 메시지 또는 Claude 프롬프트
+  model?: string        // agent일 때만 사용 (sonnet, opus 등)
 }
 
 // Job 상태

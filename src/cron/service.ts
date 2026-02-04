@@ -46,7 +46,7 @@ function dbToCronJob(db: DbCronJob): CronJob {
     deleteAfterRun: db.delete_after_run === 1,
     schedule,
     payload: {
-      kind: 'agentTurn',
+      kind: db.payload_kind,
       message: db.payload_message,
       model: db.payload_model || undefined,
     },
@@ -141,6 +141,7 @@ export class CronService {
       scheduleEveryMs: input.schedule.kind === 'every' ? input.schedule.everyMs : undefined,
       scheduleCronExpr: input.schedule.kind === 'cron' ? input.schedule.expr : undefined,
       scheduleTz: input.schedule.kind === 'cron' ? input.schedule.tz : undefined,
+      payloadKind: input.payload.kind,
       payloadMessage: input.payload.message,
       payloadModel: input.payload.model,
       slackChannelId: input.slackChannelId,
@@ -179,6 +180,7 @@ export class CronService {
     }
 
     if (patch.payload) {
+      updates.payloadKind = patch.payload.kind
       updates.payloadMessage = patch.payload.message
       updates.payloadModel = patch.payload.model || null
     }
@@ -322,49 +324,58 @@ export class CronService {
     opts: { forced: boolean }
   ): Promise<CronRunResult> {
     const startMs = this.deps.nowMs()
-    console.log(`[CronService] Executing job: ${job.id} (${job.name})${opts.forced ? ' (forced)' : ''}`)
+    console.log(`[CronService] Executing job: ${job.id} (${job.name}) [${job.payload.kind}]${opts.forced ? ' (forced)' : ''}`)
 
     try {
-      // Claude 실행
-      const result = await this.deps.runClaude({
-        message: job.payload.message,
-        model: job.payload.model,
-        cwd: this.deps.projectPath,
-      })
+      let responseText: string
+
+      if (job.payload.kind === 'notify') {
+        // 단순 알림: Claude 호출 없이 메시지만 전달
+        responseText = job.payload.message
+      } else {
+        // AI 응답: Claude를 통해 응답 생성
+        const result = await this.deps.runClaude({
+          message: job.payload.message,
+          model: job.payload.model,
+          cwd: this.deps.projectPath,
+        })
+
+        if (!result?.text) {
+          throw new Error('No response from Claude')
+        }
+        responseText = result.text
+      }
 
       const durationMs = this.deps.nowMs() - startMs
 
-      if (result?.text) {
-        // Slack으로 결과 전송
-        const scheduleInfo = formatSchedule(job.schedule)
-        const header = `⏰ *[${job.name}]* (${scheduleInfo})\n\n`
-        await this.deps.sendToSlack(job.slackChannelId, header + result.text)
+      // Slack으로 결과 전송
+      const scheduleInfo = formatSchedule(job.schedule)
+      const kindEmoji = job.payload.kind === 'notify' ? '🔔' : '🤖'
+      const header = `${kindEmoji} *[${job.name}]* (${scheduleInfo})\n\n`
+      await this.deps.sendToSlack(job.slackChannelId, header + responseText)
 
-        // 상태 업데이트
-        const isOneTime = isOneTimeSchedule(job.schedule)
-        const nextRunAtMs = isOneTime
-          ? null
-          : computeNextRunAtMs(job.schedule, this.deps.nowMs()) || null
+      // 상태 업데이트
+      const isOneTime = isOneTimeSchedule(job.schedule)
+      const nextRunAtMs = isOneTime
+        ? null
+        : computeNextRunAtMs(job.schedule, this.deps.nowMs()) || null
 
-        chatDb.updateCronJob(job.id, {
-          lastRunAtMs: startMs,
-          lastStatus: 'ok',
-          lastError: null,
-          lastDurationMs: durationMs,
-          nextRunAtMs,
-        })
+      chatDb.updateCronJob(job.id, {
+        lastRunAtMs: startMs,
+        lastStatus: 'ok',
+        lastError: null,
+        lastDurationMs: durationMs,
+        nextRunAtMs,
+      })
 
-        // 일회성 + deleteAfterRun이면 삭제
-        if (isOneTime && job.deleteAfterRun) {
-          chatDb.deleteCronJob(job.id)
-          console.log(`[CronService] Deleted one-time job: ${job.id}`)
-        }
-
-        console.log(`[CronService] Job completed: ${job.id} (${durationMs}ms)`)
-        return { ok: true, ran: true, result: result.text }
-      } else {
-        throw new Error('No response from Claude')
+      // 일회성 + deleteAfterRun이면 삭제
+      if (isOneTime && job.deleteAfterRun) {
+        chatDb.deleteCronJob(job.id)
+        console.log(`[CronService] Deleted one-time job: ${job.id}`)
       }
+
+      console.log(`[CronService] Job completed: ${job.id} (${durationMs}ms)`)
+      return { ok: true, ran: true, result: responseText }
     } catch (err) {
       const durationMs = this.deps.nowMs() - startMs
       const errorMessage = err instanceof Error ? err.message : String(err)

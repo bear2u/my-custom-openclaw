@@ -11,6 +11,7 @@ export type {
   CronJobPatch,
   CronSchedule,
   CronPayload,
+  CronPayloadKind,
   CronJobState,
   CronServiceDeps,
   CronStatusSummary,

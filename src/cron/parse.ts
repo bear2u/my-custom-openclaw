@@ -12,7 +12,7 @@
  * - "매 30분마다 ..." → { kind: 'every', everyMs }
  */
 
-import type { CronSchedule } from './types.js'
+import type { CronPayloadKind, CronSchedule } from './types.js'
 
 // 시간대 매핑
 const PERIOD_HOURS: Record<string, number> = {
@@ -41,6 +41,7 @@ export interface ParsedCronRequest {
   message: string
   schedule: CronSchedule
   deleteAfterRun: boolean
+  payloadKind: CronPayloadKind
 }
 
 /**
@@ -77,6 +78,7 @@ function parseRepeatPattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'every', everyMs },
       deleteAfterRun: false,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -92,6 +94,7 @@ function parseRepeatPattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'cron', expr: `${minute} ${hour} * * *`, tz: 'Asia/Seoul' },
       deleteAfterRun: false,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -109,6 +112,7 @@ function parseRepeatPattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'cron', expr: `${minute} ${hour} * * ${dayNum}`, tz: 'Asia/Seoul' },
       deleteAfterRun: false,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -146,6 +150,7 @@ function parseOneTimePattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'at', atMs: now.getTime() + deltaMs },
       deleteAfterRun: true,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -184,6 +189,7 @@ function parseOneTimePattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'at', atMs: targetDate.getTime() },
       deleteAfterRun: true,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -211,6 +217,7 @@ function parseOneTimePattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'at', atMs: targetDate.getTime() },
       deleteAfterRun: true,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -232,6 +239,7 @@ function parseOneTimePattern(text: string): ParsedCronRequest | null {
       message,
       schedule: { kind: 'at', atMs: targetDate.getTime() },
       deleteAfterRun: true,
+      payloadKind: determinePayloadKind(text, message),
     }
   }
 
@@ -269,6 +277,78 @@ function parseTimeExpression(text: string): { hour: number; minute: number } {
   }
 
   return { hour, minute }
+}
+
+/**
+ * 메시지 내용을 기반으로 payload 종류 판단
+ * - notify: 단순 알림 (알려줘, 보내줘, 리마인더 등)
+ * - agent: AI 작업 (해줘, 작성해줘, 정리해줘, 분석해줘 등)
+ */
+function determinePayloadKind(text: string, message: string): CronPayloadKind {
+  // 단순 알림 패턴 (메시지만 전달)
+  const notifyPatterns = [
+    /알려줘$/,
+    /보내줘$/,
+    /알림$/,
+    /리마인더$/,
+    /전달해줘$/,
+    /말해줘$/,
+  ]
+
+  // AI 작업 패턴 (Claude가 실제 작업 수행)
+  const agentPatterns = [
+    /해줘$/,
+    /작성해줘$/,
+    /정리해줘$/,
+    /분석해줘$/,
+    /만들어줘$/,
+    /생성해줘$/,
+    /요약해줘$/,
+    /체크해줘$/,
+    /확인해줘$/,
+    /검토해줘$/,
+    /수정해줘$/,
+    /업데이트해줘$/,
+  ]
+
+  // 메시지 내용에 질문형이나 작업 지시가 있는지 확인
+  const agentMessagePatterns = [
+    /뭐/,     // "오늘 할 일이 뭐야"
+    /어떻게/, // "어떻게 해야 해"
+    /\?/,     // 질문
+    /작성/,
+    /정리/,
+    /분석/,
+    /요약/,
+    /체크/,
+    /확인/,
+    /검토/,
+  ]
+
+  // 단순 알림 패턴 우선 확인
+  for (const pattern of notifyPatterns) {
+    if (pattern.test(text)) {
+      // 메시지 내용이 단순한 경우에만 notify
+      if (!agentMessagePatterns.some(p => p.test(message))) {
+        return 'notify'
+      }
+    }
+  }
+
+  // AI 작업 패턴 확인
+  for (const pattern of agentPatterns) {
+    if (pattern.test(text)) {
+      return 'agent'
+    }
+  }
+
+  // 메시지 내용에 작업 지시가 있으면 agent
+  if (agentMessagePatterns.some(p => p.test(message))) {
+    return 'agent'
+  }
+
+  // 기본값: 단순 알림
+  return 'notify'
 }
 
 /**

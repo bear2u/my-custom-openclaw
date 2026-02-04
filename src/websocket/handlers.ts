@@ -941,7 +941,7 @@ export function createHandlers(
       const { name, schedule, payload, slackChannelId, enabled, deleteAfterRun } = params as {
         name: string
         schedule: { kind: 'at'; atMs: number } | { kind: 'every'; everyMs: number } | { kind: 'cron'; expr: string; tz?: string }
-        payload: { kind: 'agentTurn'; message: string; model?: string }
+        payload: { kind: 'notify' | 'agent'; message: string; model?: string }
         slackChannelId: string
         enabled?: boolean
         deleteAfterRun?: boolean
@@ -971,7 +971,7 @@ export function createHandlers(
         id: string
         name?: string
         schedule?: { kind: 'at'; atMs: number } | { kind: 'every'; everyMs: number } | { kind: 'cron'; expr: string; tz?: string }
-        payload?: { kind: 'agentTurn'; message: string; model?: string }
+        payload?: { kind: 'notify' | 'agent'; message: string; model?: string }
         slackChannelId?: string
         enabled?: boolean
         deleteAfterRun?: boolean

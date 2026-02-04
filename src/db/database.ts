@@ -71,6 +71,7 @@ db.exec(`
     schedule_every_ms INTEGER,
     schedule_cron_expr TEXT,
     schedule_tz TEXT,
+    payload_kind TEXT NOT NULL DEFAULT 'notify' CHECK (payload_kind IN ('notify', 'agent')),
     payload_message TEXT NOT NULL,
     payload_model TEXT,
     slack_channel_id TEXT NOT NULL,
@@ -86,6 +87,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled ON cron_jobs(enabled);
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run ON cron_jobs(next_run_at_ms);
 `)
+
+// 마이그레이션: payload_kind 컬럼 추가 (기존 DB 호환성)
+try {
+  db.exec(`ALTER TABLE cron_jobs ADD COLUMN payload_kind TEXT NOT NULL DEFAULT 'notify' CHECK (payload_kind IN ('notify', 'agent'))`)
+} catch {
+  // 이미 존재하면 무시
+}
 
 export interface DbMessage {
   id: string
@@ -125,6 +133,7 @@ export interface DbCronJob {
   schedule_every_ms: number | null
   schedule_cron_expr: string | null
   schedule_tz: string | null
+  payload_kind: 'notify' | 'agent'
   payload_message: string
   payload_model: string | null
   slack_channel_id: string
@@ -213,10 +222,10 @@ const insertCronJob = db.prepare(`
   INSERT INTO cron_jobs (
     id, name, enabled, delete_after_run,
     schedule_kind, schedule_at_ms, schedule_every_ms, schedule_cron_expr, schedule_tz,
-    payload_message, payload_model, slack_channel_id,
+    payload_kind, payload_message, payload_model, slack_channel_id,
     next_run_at_ms, last_run_at_ms, last_status, last_error, last_duration_ms,
     created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 
 const getAllCronJobs = db.prepare(`
@@ -235,7 +244,7 @@ const updateCronJobStmt = db.prepare(`
   UPDATE cron_jobs SET
     name = ?, enabled = ?, delete_after_run = ?,
     schedule_kind = ?, schedule_at_ms = ?, schedule_every_ms = ?, schedule_cron_expr = ?, schedule_tz = ?,
-    payload_message = ?, payload_model = ?, slack_channel_id = ?,
+    payload_kind = ?, payload_message = ?, payload_model = ?, slack_channel_id = ?,
     next_run_at_ms = ?, last_run_at_ms = ?, last_status = ?, last_error = ?, last_duration_ms = ?,
     updated_at = ?
   WHERE id = ?
@@ -430,6 +439,7 @@ export const chatDb = {
     scheduleEveryMs?: number
     scheduleCronExpr?: string
     scheduleTz?: string
+    payloadKind: 'notify' | 'agent'
     payloadMessage: string
     payloadModel?: string
     slackChannelId: string
@@ -446,6 +456,7 @@ export const chatDb = {
       job.scheduleEveryMs ?? null,
       job.scheduleCronExpr ?? null,
       job.scheduleTz ?? null,
+      job.payloadKind,
       job.payloadMessage,
       job.payloadModel ?? null,
       job.slackChannelId,
@@ -468,6 +479,7 @@ export const chatDb = {
       schedule_every_ms: job.scheduleEveryMs ?? null,
       schedule_cron_expr: job.scheduleCronExpr ?? null,
       schedule_tz: job.scheduleTz ?? null,
+      payload_kind: job.payloadKind,
       payload_message: job.payloadMessage,
       payload_model: job.payloadModel ?? null,
       slack_channel_id: job.slackChannelId,
@@ -506,6 +518,7 @@ export const chatDb = {
       scheduleEveryMs: number | null
       scheduleCronExpr: string | null
       scheduleTz: string | null
+      payloadKind: 'notify' | 'agent'
       payloadMessage: string
       payloadModel: string | null
       slackChannelId: string
@@ -529,6 +542,7 @@ export const chatDb = {
       updates.scheduleEveryMs !== undefined ? updates.scheduleEveryMs : existing.schedule_every_ms,
       updates.scheduleCronExpr !== undefined ? updates.scheduleCronExpr : existing.schedule_cron_expr,
       updates.scheduleTz !== undefined ? updates.scheduleTz : existing.schedule_tz,
+      updates.payloadKind ?? existing.payload_kind,
       updates.payloadMessage ?? existing.payload_message,
       updates.payloadModel !== undefined ? updates.payloadModel : existing.payload_model,
       updates.slackChannelId ?? existing.slack_channel_id,

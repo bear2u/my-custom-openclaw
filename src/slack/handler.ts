@@ -738,20 +738,21 @@ async function handleCronCommand(
       deleteAfterRun: parsed.deleteAfterRun,
       schedule: parsed.schedule,
       payload: {
-        kind: 'agentTurn',
+        kind: parsed.payloadKind,
         message: parsed.message,
       },
       slackChannelId: channel,
     })
 
     const scheduleStr = formatSchedule(job.schedule)
+    const kindLabel = parsed.payloadKind === 'notify' ? '🔔 알림' : '🤖 AI'
     const oneTime = parsed.deleteAfterRun ? ' (일회성)' : ''
 
     return {
       handled: true,
       message: `✅ 크론 작업 등록됨 \`${job.id.slice(0, 8)}\`\n` +
         `⏰ ${scheduleStr}${oneTime}\n` +
-        `📝 "${parsed.message}"`,
+        `${kindLabel} "${parsed.message}"`,
     }
   }
 
