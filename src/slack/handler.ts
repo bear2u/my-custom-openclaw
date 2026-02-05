@@ -90,7 +90,7 @@ const processingMessages = new Set<string>()
 const channelSessions = new Map<string, string>()
 
 // 새 세션 키워드
-const NEW_SESSION_KEYWORDS = ['새 세션', '새세션', 'new session', '새로운 세션', '리셋', 'reset']
+const NEW_SESSION_KEYWORDS = ['새 세션', '새세션', 'new session', '새로운 세션', '리셋', 'reset', '새 대화', '새대화', '처음부터']
 
 // 도움말 키워드
 const HELP_KEYWORDS = ['도움말', '도움', 'help', '사용법', '명령어', 'commands']
@@ -146,7 +146,7 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • 같은 채널에서는 대화 맥락이 유지됩니다
 
 *명령어*
-• \`새 세션\` / \`reset\` - 새로운 대화 세션 시작
+• \`새 세션\` / \`새 대화\` / \`reset\` - 새로운 대화 세션 시작 (이전 맥락 초기화)
 • \`환경설정\` / \`config\` - 게이트웨이 설정 확인 및 수정
 • \`재시작\` / \`restart\` - 게이트웨이 재시작
 • \`도움말\` / \`help\` - 이 도움말 표시
@@ -776,10 +776,17 @@ async function processQueuedMessage(
 
     const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
 
-    // Gateway 모드에서는 sessionId를 slack:{channelId} 형식으로 사용
+    // 세션 ID 조회 (채널별 세션 관리)
+    // - Gateway 모드: slack:{channelId} 형식
+    // - PTY/CLI 모드: Claude가 반환한 UUID 세션 ID
+    const existingSession = channelSessions.get(item.channel)
     const sessionId = config.claudeMode === 'gateway'
       ? `slack:${item.channel}`
-      : channelSessions.get(item.channel)
+      : existingSession
+
+    if (!existingSession && config.claudeMode !== 'gateway') {
+      console.log(`[Queue] Starting new session for channel ${item.channel}`)
+    }
 
     const result = await runner.run({
       message: item.text,
@@ -945,9 +952,19 @@ export function setupSlackHandlers(
 
       // 새 세션 요청 확인
       if (isNewSessionRequest(userMessage)) {
+        const previousSession = channelSessions.get(ctx.channel)
         channelSessions.delete(ctx.channel)
         await addReaction(client, ctx.channel, ctx.messageTs, 'sparkles')
-        await sendMessage(client, ctx.channel, '새로운 세션을 시작합니다.')
+
+        let sessionMsg = '✨ *새로운 세션을 시작합니다.*\n\n'
+        sessionMsg += '이전 대화 내용은 더 이상 참조되지 않습니다.\n'
+        sessionMsg += '새로운 주제로 자유롭게 질문해주세요!'
+
+        if (previousSession) {
+          sessionMsg += `\n\n_(이전 세션: \`${previousSession.slice(0, 8)}...\`)_`
+        }
+
+        await sendMessage(client, ctx.channel, sessionMsg)
         processingMessages.delete(messageKey)
         return
       }
