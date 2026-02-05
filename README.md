@@ -9,7 +9,7 @@ Slack Bot과 Claude Code CLI를 연결하는 게이트웨이 서버입니다. Sl
 ### 백엔드
 - **Slack Bot 연동**: Socket Mode를 통한 실시간 Slack 연동
 - **메시지 큐 시스템**: 채널별 독립 큐, 순차 처리, 작업 취소 지원
-- **Claude CLI 통합**: 스트리밍 응답, 세션 관리, AbortSignal 기반 취소
+- **Claude CLI 통합**: PTY 기반 실행 (OpenClaw 방식), 스트리밍 응답, 세션 관리, AbortSignal 기반 취소
 - **크론 스케줄러**: 자연어 기반 일정 예약, 반복 작업, 리마인더 지원
 - **WebSocket 서버**: 프론트엔드와 실시간 양방향 통신
 - **브라우저 자동화**: Puppeteer / Chrome Extension Relay 지원
@@ -186,6 +186,30 @@ Slack에서 여러 메시지가 동시에 들어올 때를 위한 큐 시스템�
 | `cron.run` | 크론 작업 즉시 실행 |
 | `cron.status` | 스케줄러 상태 조회 |
 
+## Claude 실행 모드
+
+환경변수 `CLAUDE_MODE`로 Claude CLI 실행 방식을 선택할 수 있습니다.
+
+| 모드 | 설명 | 특징 |
+|------|------|------|
+| `pty` (기본값) | PTY 기반 실행 | OpenClaw 방식, 터미널 에뮬레이션, 실시간 스트리밍 |
+| `cli` | spawn() 기반 실행 | 기본 프로세스 실행 |
+| `gateway` | WebSocket 클라이언트 | 외부 Gateway 서버 연결 |
+
+### PTY 모드 (권장)
+
+[OpenClaw](https://github.com/anthropics/openclaw)와 동일한 방식으로 `node-pty`를 사용하여 가상 터미널에서 Claude CLI를 실행합니다.
+
+```env
+CLAUDE_MODE=pty
+```
+
+**장점:**
+- 터미널 에뮬레이션으로 더 안정적인 출력 처리
+- 실시간 스트리밍 응답
+- ANSI 이스케이프 시퀀스 지원
+- 세션 관리 및 resume 지원
+
 ## 프로젝트 구조
 
 ```
@@ -271,6 +295,9 @@ SLACK_APP_TOKEN=xapp-your-app-token
 | `SLACK_APP_TOKEN` | Slack App 토큰 (xapp-...) | - |
 | `CLAUDE_MODEL` | Claude 모델 선택 | `sonnet` |
 | `CLAUDE_TIMEOUT_MS` | Claude 응답 타임아웃 (ms) | `120000` |
+| `CLAUDE_MODE` | Claude 실행 모드 (cli/pty/gateway) | `pty` |
+| `GATEWAY_URL` | Gateway 서버 URL (gateway 모드) | `ws://127.0.0.1:18789` |
+| `GATEWAY_TOKEN` | Gateway 인증 토큰 (선택) | - |
 | `WS_PORT` | WebSocket 서버 포트 | `4900` |
 | `BROWSER_MODE` | 브라우저 모드 (off/puppeteer/relay) | `off` |
 | `BROWSER_RELAY_PORT` | 브라우저 릴레이 포트 | `18792` |

@@ -1,7 +1,7 @@
 import type { App } from '@slack/bolt'
 import type { WebClient } from '@slack/web-api'
 import type { Config } from '../config.js'
-import { runClaudeStreaming } from '../claude/runner.js'
+import { createRunner, type ClaudeRunner } from '../claude/runner.js'
 import { messageQueue, MAX_QUEUE_SIZE, type QueueItem } from './queue.js'
 import { existsSync, readFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -768,22 +768,28 @@ async function processQueuedMessage(
   client: WebClient,
   config: Config,
   item: QueueItem,
-  signal: AbortSignal
+  signal: AbortSignal,
+  runner: ClaudeRunner
 ): Promise<void> {
   try {
     await addReaction(client, item.channel, item.messageTs, 'eyes')
 
     const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
 
-    const result = await runClaudeStreaming({
+    // Gateway 모드에서는 sessionId를 slack:{channelId} 형식으로 사용
+    const sessionId = config.claudeMode === 'gateway'
+      ? `slack:${item.channel}`
+      : channelSessions.get(item.channel)
+
+    const result = await runner.run({
       message: item.text,
       model: config.claudeModel,
       timeoutMs: 600000,
-      sessionId: channelSessions.get(item.channel),
+      sessionId,
       cwd: config.projectPath,
       chunkInterval: 5000,
       signal,
-      onChunk: async (_chunk, accumulated) => {
+      onChunk: async (_chunk: string, accumulated: string) => {
         if (signal.aborted) return
         try {
           await sendStreamingChunk(client, item.channel, accumulated, streamingState)
@@ -850,6 +856,9 @@ export function setupSlackHandlers(
   let botUserId: string | null = null
   const envPath = join(process.cwd(), '.env')
 
+  // Runner 생성 (CLI 또는 Gateway 모드)
+  const runner = createRunner(config)
+
   // 큐 이벤트 핸들러를 저장할 변수 (클라이언트가 필요하므로 나중에 등록)
   let queueHandlerClient: WebClient | null = null
 
@@ -865,7 +874,7 @@ export function setupSlackHandlers(
 
     messageQueue.on('process', (item: QueueItem, signal: AbortSignal) => {
       console.log(`[Queue] 'process' event received for item: ${item.id}`)
-      processQueuedMessage(queueHandlerClient!, config, item, signal)
+      processQueuedMessage(queueHandlerClient!, config, item, signal, runner)
     })
     console.log('[Slack] Queue handler registered')
   }

@@ -43,6 +43,38 @@ describe('loadConfig', () => {
 
     expect(config.claudePath).toBe('claude')
   })
+
+  it('should default to pty mode when CLAUDE_MODE is not set', () => {
+    process.env.PROJECT_PATH = '/test/project'
+    delete process.env.CLAUDE_MODE
+
+    const config = loadConfig()
+
+    expect(config.claudeMode).toBe('pty')
+  })
+
+  it('should set gateway mode when CLAUDE_MODE=gateway', () => {
+    process.env.PROJECT_PATH = '/test/project'
+    process.env.CLAUDE_MODE = 'gateway'
+    process.env.GATEWAY_URL = 'ws://localhost:9999'
+    process.env.GATEWAY_TOKEN = 'test-token'
+
+    const config = loadConfig()
+
+    expect(config.claudeMode).toBe('gateway')
+    expect(config.gatewayUrl).toBe('ws://localhost:9999')
+    expect(config.gatewayToken).toBe('test-token')
+  })
+
+  it('should use default gateway URL when not specified', () => {
+    process.env.PROJECT_PATH = '/test/project'
+    process.env.CLAUDE_MODE = 'gateway'
+    delete process.env.GATEWAY_URL
+
+    const config = loadConfig()
+
+    expect(config.gatewayUrl).toBe('ws://127.0.0.1:18789')
+  })
 })
 
 describe('validateConfig', () => {
@@ -55,6 +87,9 @@ describe('validateConfig', () => {
     claudePath: 'claude',
     browserMode: 'off',
     browserRelayPort: 18792,
+    claudeMode: 'cli',
+    gatewayUrl: 'ws://127.0.0.1:18789',
+    gatewayToken: undefined,
   }
 
   it('should throw error when SLACK_BOT_TOKEN is missing', () => {

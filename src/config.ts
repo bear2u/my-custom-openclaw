@@ -1,4 +1,5 @@
 export type BrowserMode = 'off' | 'puppeteer' | 'relay'
+export type ClaudeMode = 'cli' | 'pty' | 'gateway'
 
 export interface Config {
   slackBotToken?: string
@@ -9,6 +10,10 @@ export interface Config {
   claudePath: string
   browserMode: BrowserMode
   browserRelayPort: number
+  // Gateway 모드 설정
+  claudeMode: ClaudeMode
+  gatewayUrl: string
+  gatewayToken?: string
 }
 
 export function loadConfig(): Config {
@@ -26,6 +31,15 @@ export function loadConfig(): Config {
     browserMode = 'relay'
   }
 
+  // CLAUDE_MODE: cli | pty | gateway (기본값: pty)
+  const claudeModeEnv = process.env.CLAUDE_MODE?.toLowerCase() ?? 'pty'
+  let claudeMode: ClaudeMode = 'pty'
+  if (claudeModeEnv === 'cli') {
+    claudeMode = 'cli'
+  } else if (claudeModeEnv === 'gateway') {
+    claudeMode = 'gateway'
+  }
+
   return {
     slackBotToken: process.env.SLACK_BOT_TOKEN,
     slackAppToken: process.env.SLACK_APP_TOKEN,
@@ -35,6 +49,10 @@ export function loadConfig(): Config {
     claudePath: process.env.CLAUDE_PATH ?? 'claude',
     browserMode,
     browserRelayPort: parseInt(process.env.BROWSER_RELAY_PORT ?? '18792', 10),
+    // Gateway 모드 설정
+    claudeMode,
+    gatewayUrl: process.env.GATEWAY_URL ?? 'ws://127.0.0.1:18789',
+    gatewayToken: process.env.GATEWAY_TOKEN,
   }
 }
 

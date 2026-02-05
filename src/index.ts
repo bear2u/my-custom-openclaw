@@ -8,6 +8,7 @@ import { initBrowser, closeBrowser } from './browser/unified-browser.js'
 import { chatDb } from './db/database.js'
 import { CronService, type CronServiceDeps } from './cron/index.js'
 import { runClaudeStreaming } from './claude/runner.js'
+import { GatewayServer } from './gateway/server.js'
 
 const config = loadConfig()
 const sessions = new SessionManager()
@@ -49,6 +50,12 @@ const cronService = new CronService(cronDeps)
 export { cronService }
 
 const gateway = createGatewayServer(WS_PORT, config, sessions, cronService)
+
+// Claude Gateway 서버 (gateway 모드일 때만 사용)
+let claudeGateway: GatewayServer | null = null
+if (config.claudeMode === 'gateway') {
+  claudeGateway = new GatewayServer(config)
+}
 
 async function startSlack(): Promise<boolean> {
   if (!config.slackBotToken || !config.slackAppToken) {
@@ -96,7 +103,12 @@ async function main() {
 
   // WebSocket Gateway 시작
   gateway.start()
-  console.log(`Claude Gateway is running on ws://localhost:${WS_PORT}`)
+  console.log(`[WebSocket] Gateway is running on ws://localhost:${WS_PORT}`)
+
+  // Claude Gateway 서버 시작 (gateway 모드)
+  if (claudeGateway) {
+    claudeGateway.start()
+  }
 
   // 브라우저 초기화 (DB 저장된 설정 우선, 그다음 환경변수)
   const savedBrowserMode = chatDb.getSetting('browser_mode') as BrowserMode | undefined
@@ -127,6 +139,7 @@ async function main() {
 process.on('SIGINT', async () => {
   console.log('\nShutting down...')
   cronService.stop()
+  claudeGateway?.stop()
   gateway.stop()
   await closeBrowser()
   process.exit(0)

@@ -23,6 +23,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.3",
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@slack/bolt": "^4.6.0",
     "@slack/web-api": "^7.13.0",

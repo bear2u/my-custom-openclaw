@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { buildCliArgs, runClaude } from './runner.js'
+import { buildCliArgs, runClaude, createRunner, CliRunner, GatewayRunnerWrapper } from './runner.js'
 import { spawn } from 'node:child_process'
+import type { Config } from '../config.js'
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
@@ -98,5 +99,33 @@ describe('runClaude', () => {
     ])
     expect(result?.text).toBe('Hello')
     expect(result?.sessionId).toBe('s1')
+  })
+})
+
+describe('createRunner', () => {
+  const baseConfig: Config = {
+    slackBotToken: 'xoxb-test',
+    slackAppToken: 'xapp-test',
+    claudeModel: 'sonnet',
+    claudeTimeout: 120000,
+    projectPath: '/test/project',
+    claudePath: 'claude',
+    browserMode: 'off',
+    browserRelayPort: 18792,
+    claudeMode: 'cli',
+    gatewayUrl: 'ws://127.0.0.1:18789',
+    gatewayToken: undefined,
+  }
+
+  it('should return CliRunner when claudeMode is cli', () => {
+    const runner = createRunner({ ...baseConfig, claudeMode: 'cli' })
+    expect(runner).toBeInstanceOf(CliRunner)
+  })
+
+  it('should return GatewayRunnerWrapper when claudeMode is gateway', () => {
+    const runner = createRunner({ ...baseConfig, claudeMode: 'gateway' })
+    expect(runner).toBeInstanceOf(GatewayRunnerWrapper)
+    // 정리
+    runner.stop?.()
   })
 })

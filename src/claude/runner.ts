@@ -3,6 +3,107 @@ import { execSync } from 'node:child_process'
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseCliOutput, type CliOutput } from './parser.js'
+import { GatewayRunner } from './gateway-runner.js'
+import { runClaudePty } from './pty-runner.js'
+import type { Config } from '../config.js'
+
+/**
+ * Claude Runner 공통 인터페이스
+ */
+export interface ClaudeRunner {
+  run(options: StreamingRunOptions): Promise<CliOutput | null>
+  stop?(): void
+}
+
+/**
+ * CLI 기반 Runner (spawn 방식)
+ */
+export class CliRunner implements ClaudeRunner {
+  async run(options: StreamingRunOptions): Promise<CliOutput | null> {
+    return runClaudeStreaming(options)
+  }
+}
+
+/**
+ * PTY 기반 Runner (node-pty 방식, OpenClaw 스타일)
+ */
+export class PtyRunner implements ClaudeRunner {
+  private config: Config
+
+  constructor(config: Config) {
+    this.config = config
+  }
+
+  async run(options: StreamingRunOptions): Promise<CliOutput | null> {
+    return runClaudePty({
+      message: options.message,
+      model: options.model,
+      sessionId: options.sessionId,
+      timeoutMs: options.timeoutMs,
+      cwd: options.cwd || this.config.projectPath,
+      claudePath: options.claudePath || this.config.claudePath,
+      signal: options.signal,
+      onChunk: options.onChunk,
+      chunkInterval: options.chunkInterval,
+    })
+  }
+}
+
+// Gateway Runner 싱글톤 인스턴스
+let gatewayRunnerInstance: GatewayRunner | null = null
+
+/**
+ * Gateway 기반 Runner
+ */
+export class GatewayRunnerWrapper implements ClaudeRunner {
+  private runner: GatewayRunner
+
+  constructor(config: Config) {
+    // 싱글톤 패턴으로 연결 재사용
+    if (!gatewayRunnerInstance) {
+      gatewayRunnerInstance = new GatewayRunner({
+        url: config.gatewayUrl,
+        token: config.gatewayToken,
+      })
+    }
+    this.runner = gatewayRunnerInstance
+  }
+
+  async run(options: StreamingRunOptions): Promise<CliOutput | null> {
+    // sessionId를 sessionKey로 변환 (slack:{channelId} 형식 또는 기존 UUID)
+    const sessionKey = options.sessionId ?? `slack:default`
+
+    return this.runner.run({
+      message: options.message,
+      sessionKey,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      onChunk: options.onChunk,
+      chunkInterval: options.chunkInterval,
+    })
+  }
+
+  stop(): void {
+    this.runner.stop()
+    gatewayRunnerInstance = null
+  }
+}
+
+/**
+ * Config에 따라 적절한 Runner 생성
+ */
+export function createRunner(config: Config): ClaudeRunner {
+  if (config.claudeMode === 'gateway') {
+    console.log('[Runner] Using Gateway mode')
+    return new GatewayRunnerWrapper(config)
+  }
+  if (config.claudeMode === 'pty') {
+    console.log('[Runner] Using PTY mode (OpenClaw style)')
+    return new PtyRunner(config)
+  }
+  console.log('[Runner] Using CLI mode')
+  return new CliRunner()
+}
 
 export interface RunOptions {
   message: string
