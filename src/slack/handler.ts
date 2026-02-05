@@ -8,10 +8,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   type CronService,
-  parseCronRequest,
   isCronRequest,
-  parseCronManageCommand,
-  formatSchedule,
 } from '../cron/index.js'
 
 // Slack 파일 타입
@@ -664,11 +661,11 @@ function isQueueClearRequest(text: string): boolean {
 }
 
 // 크론 명령어 처리
-// 참고: MCP가 활성화된 경우 Claude가 cron_* 도구를 사용합니다.
-// 여기서는 자연어 파싱으로 새 작업 추가만 처리합니다.
+// 모든 크론 요청은 Claude에게 전달하여 MCP 도구로 처리하도록 함
+// (handleCronCommand는 더 이상 직접 처리하지 않음)
 async function handleCronCommand(
   _client: WebClient,
-  channel: string,
+  _channel: string,
   text: string
 ): Promise<{ handled: boolean; message?: string }> {
   if (!cronService) {
@@ -680,42 +677,8 @@ async function handleCronCommand(
     return { handled: false }
   }
 
-  // 관리 명령어는 Claude MCP로 처리되도록 패스스루
-  // (크론, 크론 목록, 크론 삭제, 크론 상태 등)
-  const manageCmd = parseCronManageCommand(text)
-  if (manageCmd.action !== null) {
-    // MCP로 처리되도록 Claude에게 전달
-    return { handled: false }
-  }
-
-  // 자연어 파싱 (새 작업 추가) - "N분 후에", "매일 N시에" 등
-  const parsed = parseCronRequest(text)
-  if (parsed) {
-    const job = await cronService.add({
-      name: parsed.name,
-      enabled: true,
-      deleteAfterRun: parsed.deleteAfterRun,
-      schedule: parsed.schedule,
-      payload: {
-        kind: parsed.payloadKind,
-        message: parsed.message,
-      },
-      slackChannelId: channel,
-    })
-
-    const scheduleStr = formatSchedule(job.schedule)
-    const kindLabel = parsed.payloadKind === 'notify' ? '🔔 알림' : '🤖 AI'
-    const oneTime = parsed.deleteAfterRun ? ' (일회성)' : ''
-
-    return {
-      handled: true,
-      message: `✅ *${job.jobNumber}번* 크론 작업 등록됨\n` +
-        `📛 ${job.name}\n` +
-        `⏰ ${scheduleStr}${oneTime}\n` +
-        `${kindLabel} "${parsed.message}"`,
-    }
-  }
-
+  // 모든 크론 요청은 Claude에게 전달 (MCP cron_* 도구 사용)
+  // handled: false를 반환하여 Claude가 처리하도록 함
   return { handled: false }
 }
 
