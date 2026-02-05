@@ -408,7 +408,7 @@ export function isCronRequest(text: string): boolean {
  * 크론 관리 명령어 파싱
  */
 export function parseCronManageCommand(text: string): {
-  action: 'list' | 'delete' | 'run' | 'status' | null
+  action: 'list' | 'delete' | 'delete-all' | 'run' | 'status' | null
   jobId?: string
 } {
   const lower = text.toLowerCase()
@@ -423,8 +423,15 @@ export function parseCronManageCommand(text: string): {
     return { action: 'status' }
   }
 
-  // 삭제
-  const deleteMatch = text.match(/크론\s*(삭제|제거|delete|remove)\s*(\w+)/i)
+  // 전체 삭제
+  if (/크론\s*(전부|전체|모두|모든|all)\s*(삭제|제거|취소|clear)/i.test(text) ||
+      /크론\s*(삭제|제거|취소)\s*(전부|전체|모두|all)/i.test(text) ||
+      /(모든|전체)\s*크론\s*(삭제|제거|취소)/i.test(text)) {
+    return { action: 'delete-all' }
+  }
+
+  // 단일 삭제
+  const deleteMatch = text.match(/크론\s*(삭제|제거|취소|delete|remove)\s*(\w+)/i)
   if (deleteMatch) {
     return { action: 'delete', jobId: deleteMatch[2] }
   }

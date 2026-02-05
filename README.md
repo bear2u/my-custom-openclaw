@@ -186,6 +186,55 @@ Slack에서 여러 메시지가 동시에 들어올 때를 위한 큐 시스템�
 | `cron.run` | 크론 작업 즉시 실행 |
 | `cron.status` | 스케줄러 상태 조회 |
 
+### REST API
+
+MCP 서버나 외부 클라이언트에서 크론 작업을 관리할 수 있는 REST API입니다:
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/cron` | GET | 크론 작업 목록 조회 |
+| `/api/cron` | POST | 새 크론 작업 추가 |
+| `/api/cron` | DELETE | 모든 크론 작업 삭제 |
+| `/api/cron/:number` | DELETE | 번호로 크론 작업 삭제 |
+| `/api/cron/:number/run` | POST | 번호로 크론 작업 즉시 실행 |
+| `/api/cron/status` | GET | 스케줄러 상태 조회 |
+| `/health` | GET | 헬스 체크 |
+
+### MCP 서버 (Claude Code 연동)
+
+Claude Code에서 크론 작업을 자연어로 관리할 수 있는 MCP(Model Context Protocol) 서버를 제공합니다.
+
+**MCP 등록:**
+
+```bash
+# 프로젝트 범위로 등록
+claude mcp add slack-cron -s project node dist/mcp/server.js
+
+# 또는 전역으로 등록
+claude mcp add slack-cron node /Users/your-path/slack-connector/dist/mcp/server.js
+```
+
+**제공되는 MCP 도구:**
+
+| 도구 | 설명 |
+|------|------|
+| `cron_list` | 등록된 크론 작업 목록 조회 |
+| `cron_add` | 새로운 크론 작업 추가 |
+| `cron_delete` | 크론 작업 삭제 (번호 또는 "all") |
+| `cron_run` | 크론 작업 즉시 실행 |
+| `cron_status` | 크론 서비스 상태 확인 |
+
+**사용 예시 (Claude Code에서):**
+
+```
+> 크론 목록 보여줘
+> 1번 크론 삭제해줘
+> 매일 오전 9시에 날씨 알려달라고 크론 추가해줘
+> 크론 상태 확인해줘
+```
+
+**참고:** MCP 서버는 REST API(`http://localhost:4900`)를 통해 메인 프로세스와 통신하므로, 백엔드가 실행 중이어야 합니다.
+
 ## Claude 실행 모드
 
 환경변수 `CLAUDE_MODE`로 Claude CLI 실행 방식을 선택할 수 있습니다.
@@ -224,6 +273,8 @@ slack-connector/
 │   │   ├── schedule.ts   # 스케줄 계산 (croner 기반)
 │   │   ├── parse.ts      # 자연어 파싱
 │   │   └── types.ts      # 타입 정의
+│   ├── mcp/              # MCP 서버 (Claude Code 연동)
+│   │   └── server.ts     # REST API 기반 크론 MCP 서버
 │   ├── claude/           # Claude CLI 러너
 │   ├── browser/          # 브라우저 자동화
 │   ├── db/               # SQLite 데이터베이스

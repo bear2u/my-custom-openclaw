@@ -158,9 +158,11 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`내일 오후 3시에 "보고서" 해줘\` - 특정 시간
 • \`매주 월요일 아침에 "주간보고" 해줘\` - 주간 반복
 • \`매일 저녁 6시에 "정리" 해줘\` - 일간 반복
-• \`크론 목록\` - 등록된 크론 작업 목록
-• \`크론 삭제 <id>\` - 크론 작업 삭제
-• \`크론 실행 <id>\` - 크론 작업 즉시 실행
+• \`1시간마다 체크해줘\` - 반복 (매 접두사 없이도 가능)
+• \`크론\` / \`크론 목록\` - 등록된 크론 작업 목록
+• \`크론 삭제 1\` - 1번 작업 삭제
+• \`크론 실행 1\` - 1번 작업 즉시 실행
+• \`크론 전체 삭제\` - 모든 크론 작업 삭제
 • \`크론 상태\` - 스케줄러 상태 확인
 
 *큐 시스템*
@@ -662,6 +664,8 @@ function isQueueClearRequest(text: string): boolean {
 }
 
 // 크론 명령어 처리
+// 참고: MCP가 활성화된 경우 Claude가 cron_* 도구를 사용합니다.
+// 여기서는 자연어 파싱으로 새 작업 추가만 처리합니다.
 async function handleCronCommand(
   _client: WebClient,
   channel: string,
@@ -676,64 +680,15 @@ async function handleCronCommand(
     return { handled: false }
   }
 
-  // 관리 명령어 확인 (목록, 삭제, 실행, 상태)
+  // 관리 명령어는 Claude MCP로 처리되도록 패스스루
+  // (크론, 크론 목록, 크론 삭제, 크론 상태 등)
   const manageCmd = parseCronManageCommand(text)
-
-  if (manageCmd.action === 'list') {
-    const jobs = await cronService.list()
-    if (jobs.length === 0) {
-      return { handled: true, message: '📋 등록된 크론 작업이 없습니다.' }
-    }
-
-    let msg = '📋 *크론 작업 목록*\n\n'
-    for (const job of jobs) {
-      const status = job.enabled ? '🟢' : '⚪'
-      const schedule = formatSchedule(job.schedule)
-      msg += `${status} \`${job.id.slice(0, 8)}\` *${job.name}*\n`
-      msg += `   ⏰ ${schedule}\n`
-      msg += `   📝 "${job.payload.message.slice(0, 50)}${job.payload.message.length > 50 ? '...' : ''}"\n\n`
-    }
-    msg += '---\n'
-    msg += '`@bot 크론 삭제 <id>` - 작업 삭제\n'
-    msg += '`@bot 크론 실행 <id>` - 즉시 실행'
-
-    return { handled: true, message: msg }
+  if (manageCmd.action !== null) {
+    // MCP로 처리되도록 Claude에게 전달
+    return { handled: false }
   }
 
-  if (manageCmd.action === 'status') {
-    const status = cronService.status()
-    const nextRun = status.nextRunAtMs
-      ? new Date(status.nextRunAtMs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
-      : '없음'
-
-    return {
-      handled: true,
-      message: `📊 *크론 상태*\n\n` +
-        `• 스케줄러: ${status.enabled ? '🟢 활성' : '⚪ 비활성'}\n` +
-        `• 작업 수: ${status.jobCount}개\n` +
-        `• 다음 실행: ${nextRun}`,
-    }
-  }
-
-  if (manageCmd.action === 'delete' && manageCmd.jobId) {
-    const success = await cronService.remove(manageCmd.jobId)
-    if (success) {
-      return { handled: true, message: `✅ 크론 작업 \`${manageCmd.jobId}\`이(가) 삭제되었습니다.` }
-    } else {
-      return { handled: true, message: `❌ 크론 작업 \`${manageCmd.jobId}\`을(를) 찾을 수 없습니다.` }
-    }
-  }
-
-  if (manageCmd.action === 'run' && manageCmd.jobId) {
-    const result = await cronService.run(manageCmd.jobId)
-    if (result.ok) {
-      return { handled: true, message: `▶️ 크론 작업 \`${manageCmd.jobId}\` 실행을 시작했습니다.` }
-    } else {
-      return { handled: true, message: `❌ 크론 작업 실행 실패: ${result.error || '알 수 없는 오류'}` }
-    }
-  }
-
-  // 자연어 파싱 (새 작업 추가)
+  // 자연어 파싱 (새 작업 추가) - "N분 후에", "매일 N시에" 등
   const parsed = parseCronRequest(text)
   if (parsed) {
     const job = await cronService.add({
@@ -754,7 +709,8 @@ async function handleCronCommand(
 
     return {
       handled: true,
-      message: `✅ 크론 작업 등록됨 \`${job.id.slice(0, 8)}\`\n` +
+      message: `✅ *${job.jobNumber}번* 크론 작업 등록됨\n` +
+        `📛 ${job.name}\n` +
         `⏰ ${scheduleStr}${oneTime}\n` +
         `${kindLabel} "${parsed.message}"`,
     }

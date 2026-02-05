@@ -41,6 +41,7 @@ function dbToCronJob(db: DbCronJob): CronJob {
 
   return {
     id: db.id,
+    jobNumber: db.job_number,
     name: db.name,
     enabled: db.enabled === 1,
     deleteAfterRun: db.delete_after_run === 1,
@@ -205,7 +206,7 @@ export class CronService {
   }
 
   /**
-   * 작업 삭제
+   * 작업 삭제 (ID)
    */
   async remove(id: string): Promise<{ ok: boolean; removed: boolean }> {
     const removed = chatDb.deleteCronJob(id)
@@ -219,10 +220,64 @@ export class CronService {
   }
 
   /**
-   * 작업 즉시 실행
+   * 작업 삭제 (번호)
+   */
+  async removeByNumber(jobNumber: number): Promise<{ ok: boolean; removed: boolean; jobName?: string }> {
+    const dbJob = chatDb.getCronJobByNumber(jobNumber)
+    if (!dbJob) {
+      return { ok: true, removed: false }
+    }
+
+    const removed = chatDb.deleteCronJob(dbJob.id)
+    if (removed) {
+      this.armTimer()
+      console.log(`[CronService] Removed job #${jobNumber}: ${dbJob.id} (${dbJob.name})`)
+    }
+
+    return { ok: true, removed, jobName: dbJob.name }
+  }
+
+  /**
+   * 모든 작업 삭제
+   */
+  async removeAll(): Promise<{ ok: boolean; removedCount: number }> {
+    const jobs = this.listInternal(true) // 비활성화된 것도 포함
+    let removedCount = 0
+
+    for (const job of jobs) {
+      const removed = chatDb.deleteCronJob(job.id)
+      if (removed) {
+        removedCount++
+        console.log(`[CronService] Removed job: ${job.id} (${job.name})`)
+      }
+    }
+
+    if (removedCount > 0) {
+      this.armTimer()
+    }
+
+    console.log(`[CronService] Removed all jobs: ${removedCount} total`)
+    return { ok: true, removedCount }
+  }
+
+  /**
+   * 작업 즉시 실행 (ID)
    */
   async run(id: string): Promise<CronRunResult> {
     const dbJob = chatDb.getCronJob(id)
+    if (!dbJob) {
+      return { ok: false, ran: false, error: 'Job not found' }
+    }
+
+    const job = dbToCronJob(dbJob)
+    return this.executeJob(job, { forced: true })
+  }
+
+  /**
+   * 작업 즉시 실행 (번호)
+   */
+  async runByNumber(jobNumber: number): Promise<CronRunResult> {
+    const dbJob = chatDb.getCronJobByNumber(jobNumber)
     if (!dbJob) {
       return { ok: false, ran: false, error: 'Job not found' }
     }

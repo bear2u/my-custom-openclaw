@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "slack-cron": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "dist/mcp/server.js"
+      ],
+      "env": {}
+    }
+  }
+}

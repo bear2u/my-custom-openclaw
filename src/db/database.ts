@@ -63,6 +63,7 @@ db.exec(`
   -- 크론 작업 테이블
   CREATE TABLE IF NOT EXISTS cron_jobs (
     id TEXT PRIMARY KEY,
+    job_number INTEGER UNIQUE,
     name TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     delete_after_run INTEGER NOT NULL DEFAULT 0,
@@ -95,6 +96,25 @@ try {
   // 이미 존재하면 무시
 }
 
+// 마이그레이션: job_number 컬럼 추가
+try {
+  db.exec(`ALTER TABLE cron_jobs ADD COLUMN job_number INTEGER UNIQUE`)
+  // 기존 데이터에 번호 부여
+  const existingJobs = db.prepare(`SELECT id FROM cron_jobs ORDER BY created_at`).all() as { id: string }[]
+  existingJobs.forEach((job, idx) => {
+    db.prepare(`UPDATE cron_jobs SET job_number = ? WHERE id = ?`).run(idx + 1, job.id)
+  })
+} catch {
+  // 이미 존재하면 무시
+}
+
+// job_number 인덱스 (마이그레이션 이후 생성)
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_number ON cron_jobs(job_number)`)
+} catch {
+  // 무시
+}
+
 export interface DbMessage {
   id: string
   session_id: string
@@ -125,6 +145,7 @@ export interface DbKanbanTask {
 
 export interface DbCronJob {
   id: string
+  job_number: number
   name: string
   enabled: number  // SQLite에서 boolean은 0/1
   delete_after_run: number
@@ -220,24 +241,32 @@ const getMaxPosition = db.prepare(`
 // 크론 작업 prepared statements
 const insertCronJob = db.prepare(`
   INSERT INTO cron_jobs (
-    id, name, enabled, delete_after_run,
+    id, job_number, name, enabled, delete_after_run,
     schedule_kind, schedule_at_ms, schedule_every_ms, schedule_cron_expr, schedule_tz,
     payload_kind, payload_message, payload_model, slack_channel_id,
     next_run_at_ms, last_run_at_ms, last_status, last_error, last_duration_ms,
     created_at, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`)
+
+const getNextJobNumber = db.prepare(`
+  SELECT COALESCE(MAX(job_number), 0) + 1 as next_number FROM cron_jobs
 `)
 
 const getAllCronJobs = db.prepare(`
-  SELECT * FROM cron_jobs ORDER BY next_run_at_ms ASC NULLS LAST
+  SELECT * FROM cron_jobs ORDER BY job_number ASC
 `)
 
 const getEnabledCronJobs = db.prepare(`
-  SELECT * FROM cron_jobs WHERE enabled = 1 ORDER BY next_run_at_ms ASC NULLS LAST
+  SELECT * FROM cron_jobs WHERE enabled = 1 ORDER BY job_number ASC
 `)
 
 const getCronJobById = db.prepare(`
   SELECT * FROM cron_jobs WHERE id = ?
+`)
+
+const getCronJobByNumber = db.prepare(`
+  SELECT * FROM cron_jobs WHERE job_number = ?
 `)
 
 const updateCronJobStmt = db.prepare(`
@@ -446,8 +475,12 @@ export const chatDb = {
     nextRunAtMs?: number
   }): DbCronJob {
     const now = Date.now()
+    // 다음 job_number 가져오기
+    const { next_number: jobNumber } = getNextJobNumber.get() as { next_number: number }
+
     insertCronJob.run(
       job.id,
+      jobNumber,
       job.name,
       job.enabled !== false ? 1 : 0,
       job.deleteAfterRun ? 1 : 0,
@@ -471,6 +504,7 @@ export const chatDb = {
 
     return {
       id: job.id,
+      job_number: jobNumber,
       name: job.name,
       enabled: job.enabled !== false ? 1 : 0,
       delete_after_run: job.deleteAfterRun ? 1 : 0,
@@ -501,9 +535,14 @@ export const chatDb = {
     return getEnabledCronJobs.all() as DbCronJob[]
   },
 
-  // 단일 크론 작업 조회
+  // 단일 크론 작업 조회 (ID)
   getCronJob(id: string): DbCronJob | undefined {
     return getCronJobById.get(id) as DbCronJob | undefined
+  },
+
+  // 단일 크론 작업 조회 (번호)
+  getCronJobByNumber(jobNumber: number): DbCronJob | undefined {
+    return getCronJobByNumber.get(jobNumber) as DbCronJob | undefined
   },
 
   // 크론 작업 수정

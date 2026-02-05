@@ -31,6 +31,7 @@ export interface CronJobState {
 // Cron Job
 export interface CronJob {
   id: string
+  jobNumber: number
   name: string
   enabled: boolean
   deleteAfterRun: boolean
@@ -42,8 +43,8 @@ export interface CronJob {
   updatedAt: number
 }
 
-// 생성 입력
-export type CronJobCreate = Omit<CronJob, 'id' | 'createdAt' | 'updatedAt' | 'state'> & {
+// 생성 입력 (id, jobNumber, 시간 필드는 자동 생성)
+export type CronJobCreate = Omit<CronJob, 'id' | 'jobNumber' | 'createdAt' | 'updatedAt' | 'state'> & {
   state?: Partial<CronJobState>
 }
 
