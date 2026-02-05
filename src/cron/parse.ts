@@ -62,13 +62,13 @@ export function parseCronRequest(text: string): ParsedCronRequest | null {
 }
 
 /**
- * 반복 패턴 파싱 (매일, 매주, 매 N분)
+ * 반복 패턴 파싱 (매일, 매주, 매 N분, N시간마다)
  */
 function parseRepeatPattern(text: string): ParsedCronRequest | null {
-  // 매 N분/시간마다
-  const everyMatch = text.match(/매\s*(\d+)?\s*(분|시간)(?:마다)?/i)
+  // 매 N분/시간마다 또는 N분/시간마다 (매 접두사 선택적)
+  const everyMatch = text.match(/(?:매\s*)?(\d+)\s*(분|시간)(?:마다|씩)/i)
   if (everyMatch) {
-    const num = parseInt(everyMatch[1] || '1')
+    const num = parseInt(everyMatch[1])
     const unit = everyMatch[2]
     const everyMs = unit === '시간' ? num * 60 * 60 * 1000 : num * 60 * 1000
     const message = extractMessage(text)
@@ -388,7 +388,7 @@ export function isCronRequest(text: string): boolean {
   const patterns = [
     /\d+\s*(분|시간|일)\s*후/,
     /매(일|주)\s/,
-    /매\s*\d+\s*(분|시간)/,
+    /(?:매\s*)?\d+\s*(분|시간)(?:마다|씩)/,  // 1시간마다, 매 30분마다
     /(오늘|내일|모레|다음주)/,
     /크론\s*(목록|추가|삭제|실행|상태)/,
   ]
