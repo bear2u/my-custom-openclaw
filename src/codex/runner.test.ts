@@ -15,7 +15,7 @@ describe('buildCodexArgs', () => {
     ])
   })
 
-  it('should build resume args with thread_id', () => {
+  it('should build resume args with thread_id (no -C flag)', () => {
     const args = buildCodexArgs({
       message: 'follow up',
       cwd: '/project',
@@ -25,8 +25,9 @@ describe('buildCodexArgs', () => {
 
     expect(args).toEqual([
       'exec', 'resume', '019c319d-0e73-7323-9385-8ca8eb1e5c26',
-      '--json', '--skip-git-repo-check', '-C', '/project', 'follow up',
+      '--json', '--skip-git-repo-check', 'follow up',
     ])
+    expect(args).not.toContain('-C')
   })
 
   it('should include -m flag when model is provided', () => {

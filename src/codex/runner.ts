@@ -31,9 +31,7 @@ export function buildCodexArgs(options: CodexRunOptions): string[] {
       'exec', 'resume', options.sessionId!,
       '--json', '--skip-git-repo-check',
     ]
-    if (options.cwd) {
-      args.push('-C', options.cwd)
-    }
+    // resume 모드에서는 -C 플래그 미지원
     args.push(options.message)
     return args
   }
