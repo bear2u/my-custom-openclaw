@@ -87,7 +87,46 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled ON cron_jobs(enabled);
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run ON cron_jobs(next_run_at_ms);
+
+  -- FTS5 전문 검색 테이블 (메시지 검색용)
+  CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content,
+    content='messages',
+    content_rowid='rowid'
+  );
 `)
+
+// FTS5 트리거 생성 (마이그레이션)
+try {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+      INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+    END;
+  `)
+} catch {
+  // 이미 존재하면 무시
+}
+
+// 기존 메시지를 FTS5에 인덱싱 (최초 1회)
+try {
+  const ftsCount = db.prepare(`SELECT COUNT(*) as cnt FROM messages_fts`).get() as { cnt: number }
+  const msgCount = db.prepare(`SELECT COUNT(*) as cnt FROM messages`).get() as { cnt: number }
+  if (ftsCount.cnt === 0 && msgCount.cnt > 0) {
+    db.exec(`INSERT INTO messages_fts(rowid, content) SELECT rowid, content FROM messages`)
+    console.log(`[DB] Indexed ${msgCount.cnt} existing messages to FTS5`)
+  }
+} catch {
+  // 무시
+}
 
 // 마이그레이션: payload_kind 컬럼 추가 (기존 DB 호환성)
 try {
@@ -141,6 +180,15 @@ export interface DbKanbanTask {
   slack_channel_id: string | null
   created_at: number
   updated_at: number
+}
+
+export interface DbMessageSearchResult {
+  id: string
+  session_id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+  rank: number
 }
 
 export interface DbCronJob {
@@ -281,6 +329,38 @@ const updateCronJobStmt = db.prepare(`
 
 const deleteCronJobStmt = db.prepare(`
   DELETE FROM cron_jobs WHERE id = ?
+`)
+
+// FTS5 검색 prepared statement
+const searchMessagesFts = db.prepare(`
+  SELECT
+    m.id,
+    m.session_id,
+    m.role,
+    m.content,
+    m.timestamp,
+    bm25(messages_fts) as rank
+  FROM messages_fts
+  JOIN messages m ON messages_fts.rowid = m.rowid
+  WHERE messages_fts MATCH ?
+  ORDER BY rank
+  LIMIT ?
+`)
+
+const searchMessagesFtsWithSession = db.prepare(`
+  SELECT
+    m.id,
+    m.session_id,
+    m.role,
+    m.content,
+    m.timestamp,
+    bm25(messages_fts) as rank
+  FROM messages_fts
+  JOIN messages m ON messages_fts.rowid = m.rowid
+  WHERE messages_fts MATCH ?
+    AND m.session_id LIKE ?
+  ORDER BY rank
+  LIMIT ?
 `)
 
 export const chatDb = {
@@ -601,6 +681,31 @@ export const chatDb = {
   deleteCronJob(id: string): boolean {
     const result = deleteCronJobStmt.run(id)
     return result.changes > 0
+  },
+
+  // === 메시지 검색 (FTS5) ===
+
+  // 메시지 전문 검색
+  searchMessages(params: {
+    query: string
+    sessionId?: string
+    limit?: number
+  }): DbMessageSearchResult[] {
+    const { query, sessionId, limit = 10 } = params
+
+    // FTS5 쿼리 이스케이프 (특수문자 처리)
+    const escapedQuery = query.replace(/"/g, '""')
+    const ftsQuery = `"${escapedQuery}"`
+
+    try {
+      if (sessionId) {
+        return searchMessagesFtsWithSession.all(ftsQuery, `%${sessionId}%`, limit) as DbMessageSearchResult[]
+      }
+      return searchMessagesFts.all(ftsQuery, limit) as DbMessageSearchResult[]
+    } catch {
+      // FTS5 검색 실패 시 빈 배열 반환
+      return []
+    }
   },
 }
 

@@ -5,6 +5,7 @@ import { createHandlers, type RpcRequest, type RpcResponse, type EventMessage } 
 import type { SessionManager } from '../session/manager.js'
 import type { Config } from '../config.js'
 import type { CronService } from '../cron/index.js'
+import { chatDb } from '../db/database.js'
 
 export interface WebSocketClient {
   id: string
@@ -146,6 +147,37 @@ function createHttpHandler(cronService?: CronService) {
         }
 
         return json({ error: 'Not found' }, 404)
+      }
+
+      // 메시지 검색 API
+      if (pathname === '/api/messages/search' && req.method === 'GET') {
+        const query = url.searchParams.get('q') || ''
+        const sessionId = url.searchParams.get('session_id') || undefined
+        const limit = parseInt(url.searchParams.get('limit') || '10', 10)
+
+        if (!query.trim()) {
+          return json({ error: 'Query parameter "q" is required' }, 400)
+        }
+
+        const results = chatDb.searchMessages({
+          query: query.trim(),
+          sessionId,
+          limit: Math.min(limit, 50), // 최대 50개 제한
+        })
+
+        return json({
+          query,
+          count: results.length,
+          results: results.map(r => ({
+            id: r.id,
+            sessionId: r.session_id,
+            role: r.role,
+            content: r.content,
+            timestamp: r.timestamp,
+            date: new Date(r.timestamp).toISOString(),
+            rank: r.rank,
+          })),
+        })
       }
 
       // 헬스 체크

@@ -198,7 +198,42 @@ MCP 서버나 외부 클라이언트에서 크론 작업을 관리할 수 있는
 | `/api/cron/:number` | DELETE | 번호로 크론 작업 삭제 |
 | `/api/cron/:number/run` | POST | 번호로 크론 작업 즉시 실행 |
 | `/api/cron/status` | GET | 스케줄러 상태 조회 |
+| `/api/messages/search` | GET | 대화 내용 검색 (FTS5) |
 | `/health` | GET | 헬스 체크 |
+
+### 대화 검색 API
+
+과거 대화 내용을 전문 검색(Full-Text Search)할 수 있습니다.
+
+**요청:**
+```
+GET /api/messages/search?q=검색어&session_id=채널ID&limit=10
+```
+
+| 파라미터 | 필수 | 설명 |
+|----------|------|------|
+| `q` | ✅ | 검색 키워드 |
+| `session_id` | ❌ | 특정 세션/채널로 제한 |
+| `limit` | ❌ | 최대 결과 수 (기본: 10, 최대: 50) |
+
+**응답 예시:**
+```json
+{
+  "query": "API 설계",
+  "count": 2,
+  "results": [
+    {
+      "id": "msg-123",
+      "sessionId": "slack:C123456",
+      "role": "user",
+      "content": "API 인증은 JWT로 하자",
+      "timestamp": 1707225600000,
+      "date": "2025-02-06T10:00:00.000Z",
+      "rank": -1.5
+    }
+  ]
+}
+```
 
 ### MCP 서버 (Claude Code 연동)
 
@@ -223,6 +258,7 @@ claude mcp add slack-cron node /Users/your-path/slack-connector/dist/mcp/server.
 | `cron_delete` | 크론 작업 삭제 (번호 또는 "all") |
 | `cron_run` | 크론 작업 즉시 실행 |
 | `cron_status` | 크론 서비스 상태 확인 |
+| `conversation_search` | 과거 대화 내용 검색 (FTS5) |
 
 **사용 예시 (Claude Code에서):**
 
@@ -231,6 +267,8 @@ claude mcp add slack-cron node /Users/your-path/slack-connector/dist/mcp/server.
 > 1번 크론 삭제해줘
 > 매일 오전 9시에 날씨 알려달라고 크론 추가해줘
 > 크론 상태 확인해줘
+> 지난번에 API 설계 얘기한 거 찾아줘
+> 이전 대화에서 JWT 관련 검색해줘
 ```
 
 **참고:** MCP 서버는 REST API(`http://localhost:4900`)를 통해 메인 프로세스와 통신하므로, 백엔드가 실행 중이어야 합니다.

@@ -255,6 +255,63 @@ server.tool(
   }
 )
 
+// Tool: 대화 검색
+server.tool(
+  'conversation_search',
+  '과거 대화 내용을 검색합니다. 사용자가 이전에 논의했던 내용을 찾을 때 사용하세요.',
+  {
+    query: z.string().describe('검색할 키워드나 문장'),
+    session_id: z.string().optional().describe('특정 세션(채널)으로 제한 (선택)'),
+    limit: z.number().default(5).describe('최대 결과 수 (기본: 5)'),
+  },
+  async ({ query, session_id, limit }) => {
+    try {
+      const params = new URLSearchParams({ q: query, limit: String(limit) })
+      if (session_id) {
+        params.set('session_id', session_id)
+      }
+
+      const result = await apiCall<{
+        query: string
+        count: number
+        results: Array<{
+          id: string
+          sessionId: string
+          role: string
+          content: string
+          timestamp: number
+          date: string
+          rank: number
+        }>
+      }>('GET', `/api/messages/search?${params.toString()}`)
+
+      if (result.count === 0) {
+        return {
+          content: [{ type: 'text', text: `[MCP] "${query}" 검색 결과가 없습니다.` }],
+        }
+      }
+
+      const formatted = result.results.map((r, i) => ({
+        순번: i + 1,
+        역할: r.role === 'user' ? '사용자' : 'AI',
+        내용: r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content,
+        날짜: new Date(r.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+      }))
+
+      return {
+        content: [{
+          type: 'text',
+          text: `[MCP] "${query}" 검색 결과 (${result.count}개):\n\n${JSON.stringify(formatted, null, 2)}`,
+        }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `[MCP] 검색 오류: ${err instanceof Error ? err.message : String(err)}` }],
+      }
+    }
+  }
+)
+
 // 서버 시작
 async function main() {
   const transport = new StdioServerTransport()
