@@ -199,6 +199,10 @@ MCP 서버나 외부 클라이언트에서 크론 작업을 관리할 수 있는
 | `/api/cron/:number/run` | POST | 번호로 크론 작업 즉시 실행 |
 | `/api/cron/status` | GET | 스케줄러 상태 조회 |
 | `/api/messages/search` | GET | 대화 내용 검색 (FTS5) |
+| `/api/channels/projects` | GET | 모든 채널 프로젝트 매핑 조회 |
+| `/api/channels/:id/project` | GET | 채널 프로젝트 경로 조회 |
+| `/api/channels/:id/project` | PUT | 채널 프로젝트 경로 설정 |
+| `/api/channels/:id/project` | DELETE | 채널 프로젝트 연결 해제 |
 | `/health` | GET | 헬스 체크 |
 
 ### 대화 검색 API
@@ -259,6 +263,10 @@ claude mcp add slack-cron node /Users/your-path/slack-connector/dist/mcp/server.
 | `cron_run` | 크론 작업 즉시 실행 |
 | `cron_status` | 크론 서비스 상태 확인 |
 | `conversation_search` | 과거 대화 내용 검색 (FTS5) |
+| `channel_project_set` | 채널의 프로젝트 경로 설정 |
+| `channel_project_get` | 채널의 프로젝트 경로 조회 |
+| `channel_project_delete` | 채널의 프로젝트 연결 해제 |
+| `channel_project_list` | 모든 채널의 프로젝트 매핑 조회 |
 
 **사용 예시 (Claude Code에서):**
 
@@ -269,9 +277,67 @@ claude mcp add slack-cron node /Users/your-path/slack-connector/dist/mcp/server.
 > 크론 상태 확인해줘
 > 지난번에 API 설계 얘기한 거 찾아줘
 > 이전 대화에서 JWT 관련 검색해줘
+> 이 채널을 /Users/me/frontend 프로젝트로 연결해줘
+> 현재 프로젝트 경로 알려줘
+> 프로젝트 연결 해제해줘
 ```
 
 **참고:** MCP 서버는 REST API(`http://localhost:4900`)를 통해 메인 프로세스와 통신하므로, 백엔드가 실행 중이어야 합니다.
+
+## 채널별 프로젝트 연결
+
+Slack 채널마다 다른 프로젝트 디렉토리를 연결하여 채널별로 독립적인 Claude 작업 환경을 제공합니다.
+
+### 동작 방식
+
+```
+기본 설정 (PROJECT_PATH):
+모든 채널 → /project/default
+
+채널별 설정 후:
+#frontend-team → /Users/me/frontend
+#backend-team  → /Users/me/backend
+#general       → /project/default (기본값)
+```
+
+### 설정 방법 (자연어 명령)
+
+Slack에서 Claude에게 자연어로 프로젝트를 연결할 수 있습니다:
+
+```
+사용자: @bot 이 채널을 /Users/me/frontend 프로젝트로 연결해줘
+봇:     채널이 /Users/me/frontend 프로젝트에 연결되었습니다.
+
+사용자: @bot 현재 프로젝트 경로 알려줘
+봇:     현재 채널은 /Users/me/frontend 프로젝트에 연결되어 있습니다.
+
+사용자: @bot 프로젝트 연결 해제해줘
+봇:     프로젝트 연결이 해제되었습니다. 기본 프로젝트를 사용합니다.
+```
+
+### REST API
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/channels/projects` | GET | 모든 채널의 프로젝트 매핑 조회 |
+| `/api/channels/:id/project` | GET | 특정 채널의 프로젝트 경로 조회 |
+| `/api/channels/:id/project` | PUT | 채널의 프로젝트 경로 설정 |
+| `/api/channels/:id/project` | DELETE | 채널의 프로젝트 연결 해제 |
+
+**PUT 요청 예시:**
+```bash
+curl -X PUT http://localhost:4900/api/channels/C12345678/project \
+  -H "Content-Type: application/json" \
+  -d '{"project_path": "/Users/me/frontend"}'
+```
+
+### 주의사항
+
+- `.env`의 `PROJECT_PATH`는 기본값으로 유지 (필수)
+- 채널별 설정이 없으면 기본 프로젝트 경로 사용
+- 설정된 경로는 DB에 저장되어 재시작 후에도 유지
+- 크론 작업도 해당 채널의 프로젝트 경로에서 실행
+- **프로젝트 변경 시 새 세션 시작**: 채널의 프로젝트를 변경하면 자동으로 새 Claude 세션이 시작됩니다 (이전 대화 컨텍스트 초기화)
 
 ## Claude 실행 모드
 

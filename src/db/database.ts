@@ -88,6 +88,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled ON cron_jobs(enabled);
   CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run ON cron_jobs(next_run_at_ms);
 
+  -- 채널별 프로젝트 설정 테이블
+  CREATE TABLE IF NOT EXISTS channel_settings (
+    channel_id TEXT PRIMARY KEY,
+    project_path TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
   -- FTS5 전문 검색 테이블 (메시지 검색용)
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content,
@@ -189,6 +197,13 @@ export interface DbMessageSearchResult {
   content: string
   timestamp: number
   rank: number
+}
+
+export interface DbChannelSetting {
+  channel_id: string
+  project_path: string
+  created_at: number
+  updated_at: number
 }
 
 export interface DbCronJob {
@@ -361,6 +376,25 @@ const searchMessagesFtsWithSession = db.prepare(`
     AND m.session_id LIKE ?
   ORDER BY rank
   LIMIT ?
+`)
+
+// 채널 설정 prepared statements
+const getChannelSetting = db.prepare(`
+  SELECT * FROM channel_settings WHERE channel_id = ?
+`)
+
+const upsertChannelSetting = db.prepare(`
+  INSERT INTO channel_settings (channel_id, project_path, created_at, updated_at)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(channel_id) DO UPDATE SET project_path = excluded.project_path, updated_at = excluded.updated_at
+`)
+
+const deleteChannelSetting = db.prepare(`
+  DELETE FROM channel_settings WHERE channel_id = ?
+`)
+
+const getAllChannelSettings = db.prepare(`
+  SELECT * FROM channel_settings ORDER BY created_at DESC
 `)
 
 export const chatDb = {
@@ -706,6 +740,37 @@ export const chatDb = {
       // FTS5 검색 실패 시 빈 배열 반환
       return []
     }
+  },
+
+  // === 채널별 프로젝트 설정 ===
+
+  // 채널 프로젝트 경로 조회
+  getChannelProject(channelId: string): string | undefined {
+    const row = getChannelSetting.get(channelId) as DbChannelSetting | undefined
+    return row?.project_path
+  },
+
+  // 채널 프로젝트 경로 설정
+  setChannelProject(channelId: string, projectPath: string): DbChannelSetting {
+    const now = Date.now()
+    upsertChannelSetting.run(channelId, projectPath, now, now)
+    return {
+      channel_id: channelId,
+      project_path: projectPath,
+      created_at: now,
+      updated_at: now,
+    }
+  },
+
+  // 채널 프로젝트 설정 삭제
+  deleteChannelProject(channelId: string): boolean {
+    const result = deleteChannelSetting.run(channelId)
+    return result.changes > 0
+  },
+
+  // 모든 채널 프로젝트 설정 목록
+  listChannelProjects(): DbChannelSetting[] {
+    return getAllChannelSettings.all() as DbChannelSetting[]
   },
 }
 

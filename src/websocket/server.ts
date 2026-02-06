@@ -149,6 +149,65 @@ function createHttpHandler(cronService?: CronService) {
         return json({ error: 'Not found' }, 404)
       }
 
+      // 채널 프로젝트 API 라우팅
+      if (pathname.startsWith('/api/channels')) {
+        // GET /api/channels/projects - 전체 목록 조회
+        if (req.method === 'GET' && pathname === '/api/channels/projects') {
+          const settings = chatDb.listChannelProjects()
+          return json({
+            count: settings.length,
+            channels: settings.map(s => ({
+              channelId: s.channel_id,
+              projectPath: s.project_path,
+              createdAt: s.created_at,
+              updatedAt: s.updated_at,
+            })),
+          })
+        }
+
+        // 채널별 프로젝트 경로 라우팅
+        const channelMatch = pathname.match(/^\/api\/channels\/([^/]+)\/project$/)
+        if (channelMatch) {
+          const channelId = channelMatch[1]
+
+          // GET /api/channels/:id/project - 채널 프로젝트 조회
+          if (req.method === 'GET') {
+            const projectPath = chatDb.getChannelProject(channelId)
+            return json({
+              channelId,
+              projectPath: projectPath ?? null,
+              isDefault: !projectPath,
+            })
+          }
+
+          // PUT /api/channels/:id/project - 채널 프로젝트 설정
+          if (req.method === 'PUT') {
+            const body = await parseBody() as { project_path: string }
+            if (!body.project_path) {
+              return json({ error: 'project_path is required' }, 400)
+            }
+
+            const setting = chatDb.setChannelProject(channelId, body.project_path)
+            return json({
+              channelId: setting.channel_id,
+              projectPath: setting.project_path,
+              updatedAt: setting.updated_at,
+            })
+          }
+
+          // DELETE /api/channels/:id/project - 채널 프로젝트 삭제
+          if (req.method === 'DELETE') {
+            const deleted = chatDb.deleteChannelProject(channelId)
+            return json({
+              channelId,
+              deleted,
+            })
+          }
+        }
+
+        return json({ error: 'Not found' }, 404)
+      }
+
       // 메시지 검색 API
       if (pathname === '/api/messages/search' && req.method === 'GET') {
         const query = url.searchParams.get('q') || ''

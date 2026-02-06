@@ -389,10 +389,14 @@ export class CronService {
         responseText = job.payload.message
       } else {
         // AI 응답: Claude를 통해 응답 생성
+        // 채널별 프로젝트 경로 조회 (설정 없으면 기본값 사용)
+        const channelProject = chatDb.getChannelProject(job.slackChannelId)
+        const projectPath = channelProject ?? this.deps.projectPath
+
         const result = await this.deps.runClaude({
           message: job.payload.message,
           model: job.payload.model,
-          cwd: this.deps.projectPath,
+          cwd: projectPath,
         })
 
         if (!result?.text) {

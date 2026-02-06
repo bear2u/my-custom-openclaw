@@ -182,15 +182,25 @@ server.tool(
 // Tool: 크론 추가
 server.tool(
   'cron_add',
-  '새로운 크론 작업을 추가합니다',
+  `새로운 크론 작업을 추가합니다.
+
+**중요: schedule_type 선택 가이드**
+- "X분후", "X시간후" 같은 일회성 알림 → schedule_type: "at", schedule_value: ISO 날짜시간 (예: "2026-02-06T12:00:00")
+- "X분마다", "매 X시간마다" 같은 반복 → schedule_type: "every", schedule_value: 밀리초 (예: "300000" = 5분)
+- "매일 오전 9시", "매주 월요일" 같은 cron 패턴 → schedule_type: "cron", schedule_value: cron 표현식 (예: "0 9 * * *")
+
+**일회성 알림의 경우:**
+- schedule_type을 반드시 "at"으로 설정
+- schedule_value에 현재 시간 + 원하는 시간을 ISO 형식으로 전달
+- one_time을 true로 설정`,
   {
     name: z.string().describe('작업 이름'),
-    schedule_type: z.enum(['at', 'every', 'cron']).describe('스케줄 타입'),
-    schedule_value: z.string().describe('at: ISO 날짜/시간, every: 밀리초, cron: cron 표현식'),
+    schedule_type: z.enum(['at', 'every', 'cron']).describe('at: 특정 시간에 1회 실행, every: 일정 간격 반복, cron: cron 표현식'),
+    schedule_value: z.string().describe('at: ISO 날짜시간 (예: 2026-02-06T12:00:00), every: 밀리초 (예: 300000), cron: cron 표현식 (예: 0 9 * * *)'),
     message: z.string().describe('실행할 메시지/프롬프트'),
-    payload_type: z.enum(['notify', 'agent']).default('agent').describe('notify: 알림만, agent: Claude 실행'),
-    slack_channel: z.string().describe('결과를 보낼 Slack 채널 ID'),
-    one_time: z.boolean().default(false).describe('일회성 작업 여부'),
+    payload_type: z.enum(['notify', 'agent']).default('notify').describe('notify: 단순 알림 메시지 전송, agent: Claude가 메시지를 처리하여 응답'),
+    slack_channel: z.string().describe('결과를 보낼 Slack 채널 ID (메시지에서 [Slack 채널 ID: xxx] 확인)'),
+    one_time: z.boolean().default(false).describe('일회성 작업 여부 (실행 후 자동 삭제). at 타입은 항상 true 권장'),
   },
   async ({ name, schedule_type, schedule_value, message, payload_type, slack_channel, one_time }) => {
     try {
@@ -258,17 +268,18 @@ server.tool(
 // Tool: 대화 검색
 server.tool(
   'conversation_search',
-  '과거 대화 내용을 검색합니다. 사용자가 이전에 논의했던 내용을 찾을 때 사용하세요.',
+  '과거 대화 내용을 검색합니다. 사용자가 이전에 논의했던 내용을 찾을 때 사용하세요. 중요: 현재 채널의 대화만 검색하려면 channel_id에 현재 Slack 채널 ID를 전달하세요.',
   {
     query: z.string().describe('검색할 키워드나 문장'),
-    session_id: z.string().optional().describe('특정 세션(채널)으로 제한 (선택)'),
+    channel_id: z.string().optional().describe('현재 Slack 채널 ID (메시지에서 [Slack 채널 ID: xxx] 확인). 지정하면 해당 채널의 대화만 검색'),
     limit: z.number().default(5).describe('최대 결과 수 (기본: 5)'),
   },
-  async ({ query, session_id, limit }) => {
+  async ({ query, channel_id, limit }) => {
     try {
       const params = new URLSearchParams({ q: query, limit: String(limit) })
-      if (session_id) {
-        params.set('session_id', session_id)
+      // 채널 ID가 주어지면 해당 채널의 세션으로 필터링
+      if (channel_id) {
+        params.set('session_id', `slack:${channel_id}`)
       }
 
       const result = await apiCall<{
@@ -307,6 +318,154 @@ server.tool(
     } catch (err) {
       return {
         content: [{ type: 'text', text: `[MCP] 검색 오류: ${err instanceof Error ? err.message : String(err)}` }],
+      }
+    }
+  }
+)
+
+// Tool: 채널 프로젝트 설정
+server.tool(
+  'channel_project_set',
+  '현재 채널의 프로젝트 경로를 설정합니다. 이 채널에서 Claude가 작업할 프로젝트 디렉토리를 지정합니다.',
+  {
+    channel_id: z.string().describe('Slack 채널 ID'),
+    project_path: z.string().describe('프로젝트 디렉토리 절대 경로'),
+  },
+  async ({ channel_id, project_path }) => {
+    try {
+      const result = await apiCall<{
+        channelId: string
+        projectPath: string
+        updatedAt: number
+      }>('PUT', `/api/channels/${channel_id}/project`, { project_path })
+
+      return {
+        content: [{
+          type: 'text',
+          text: `[MCP] 채널 프로젝트 설정 완료\n채널: ${result.channelId}\n프로젝트: ${result.projectPath}`,
+        }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `[MCP] 오류: ${err instanceof Error ? err.message : String(err)}` }],
+      }
+    }
+  }
+)
+
+// Tool: 채널 프로젝트 조회
+server.tool(
+  'channel_project_get',
+  '현재 채널의 프로젝트 경로를 조회합니다.',
+  {
+    channel_id: z.string().describe('Slack 채널 ID'),
+  },
+  async ({ channel_id }) => {
+    try {
+      const result = await apiCall<{
+        channelId: string
+        projectPath: string | null
+        isDefault: boolean
+      }>('GET', `/api/channels/${channel_id}/project`)
+
+      if (result.isDefault) {
+        return {
+          content: [{
+            type: 'text',
+            text: `[MCP] 채널 ${result.channelId}은(는) 기본 프로젝트를 사용합니다.`,
+          }],
+        }
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `[MCP] 채널 프로젝트 정보\n채널: ${result.channelId}\n프로젝트: ${result.projectPath}`,
+        }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `[MCP] 오류: ${err instanceof Error ? err.message : String(err)}` }],
+      }
+    }
+  }
+)
+
+// Tool: 채널 프로젝트 삭제
+server.tool(
+  'channel_project_delete',
+  '채널의 프로젝트 연결을 해제합니다. 해제 후에는 기본 프로젝트를 사용합니다.',
+  {
+    channel_id: z.string().describe('Slack 채널 ID'),
+  },
+  async ({ channel_id }) => {
+    try {
+      const result = await apiCall<{
+        channelId: string
+        deleted: boolean
+      }>('DELETE', `/api/channels/${channel_id}/project`)
+
+      if (!result.deleted) {
+        return {
+          content: [{
+            type: 'text',
+            text: `[MCP] 채널 ${result.channelId}에는 설정된 프로젝트가 없습니다.`,
+          }],
+        }
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `[MCP] 채널 ${result.channelId}의 프로젝트 연결이 해제되었습니다. 기본 프로젝트를 사용합니다.`,
+        }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `[MCP] 오류: ${err instanceof Error ? err.message : String(err)}` }],
+      }
+    }
+  }
+)
+
+// Tool: 전체 채널 프로젝트 목록
+server.tool(
+  'channel_project_list',
+  '모든 채널의 프로젝트 매핑을 조회합니다.',
+  {},
+  async () => {
+    try {
+      const result = await apiCall<{
+        count: number
+        channels: Array<{
+          channelId: string
+          projectPath: string
+          createdAt: number
+          updatedAt: number
+        }>
+      }>('GET', '/api/channels/projects')
+
+      if (result.count === 0) {
+        return {
+          content: [{ type: 'text', text: '[MCP] 설정된 채널 프로젝트가 없습니다. 모든 채널이 기본 프로젝트를 사용합니다.' }],
+        }
+      }
+
+      const formatted = result.channels.map(c => ({
+        채널: c.channelId,
+        프로젝트: c.projectPath,
+        설정일: new Date(c.createdAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+      }))
+
+      return {
+        content: [{
+          type: 'text',
+          text: `[MCP] 채널 프로젝트 목록 (${result.count}개):\n\n${JSON.stringify(formatted, null, 2)}`,
+        }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: 'text', text: `[MCP] 오류: ${err instanceof Error ? err.message : String(err)}` }],
       }
     }
   }

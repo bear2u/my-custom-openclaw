@@ -10,6 +10,7 @@ import {
   type CronService,
   isCronRequest,
 } from '../cron/index.js'
+import { chatDb } from '../db/database.js'
 
 // Slack 파일 타입
 interface SlackFile {
@@ -83,8 +84,14 @@ export function chunkMessage(text: string): string[] {
 // 처리 중인 메시지 추적 (중복 방지)
 const processingMessages = new Set<string>()
 
-// 채널별 세션 ID 매핑 (채널 ID → Claude 세션 ID)
+// 채널별 세션 ID 매핑 (채널ID:프로젝트경로 → Claude 세션 ID)
+// 프로젝트가 변경되면 새 세션을 시작하기 위해 프로젝트 경로도 키에 포함
 const channelSessions = new Map<string, string>()
+
+// 채널+프로젝트 조합으로 세션 키 생성
+function getSessionKey(channelId: string, projectPath: string): string {
+  return `${channelId}:${projectPath}`
+}
 
 // 새 세션 키워드
 const NEW_SESSION_KEYWORDS = ['새 세션', '새세션', 'new session', '새로운 세션', '리셋', 'reset', '새 대화', '새대화', '처음부터']
@@ -162,6 +169,16 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`크론 전체 삭제\` - 모든 크론 작업 삭제
 • \`크론 상태\` - 스케줄러 상태 확인
 
+*채널별 프로젝트 연결*
+• \`이 채널을 /path/to/project 프로젝트로 연결해줘\` - 채널별 프로젝트 설정
+• \`현재 프로젝트 경로 알려줘\` - 현재 채널의 프로젝트 확인
+• \`프로젝트 연결 해제해줘\` - 채널 프로젝트 연결 해제 (기본값 사용)
+• \`모든 채널 프로젝트 목록 보여줘\` - 전체 채널-프로젝트 매핑 조회
+
+*대화 검색*
+• \`지난번에 API 얘기한 거 찾아줘\` - 과거 대화 검색
+• \`이전 대화에서 JWT 관련 검색해줘\` - 키워드로 대화 검색
+
 *큐 시스템*
 • 처리 중일 때 새 메시지 → 자동으로 대기열에 추가
 • \`!\`로 시작하면 모든 작업 취소 후 바로 시작
@@ -180,7 +197,8 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 *팁*
 • 코드 작성, 질문 답변, 문서 작성 등 다양한 작업을 요청할 수 있습니다
 • 이전 대화를 참조하여 "아까 그거 수정해줘" 같은 요청도 가능합니다
-• 새로운 주제로 대화하려면 "새 세션"이라고 말하세요`
+• 새로운 주제로 대화하려면 "새 세션"이라고 말하세요
+• 채널마다 다른 프로젝트를 연결하면 독립적인 작업 환경을 사용할 수 있습니다`
 
 interface SlackMessageContext {
   channel: string
@@ -441,6 +459,12 @@ function maskToken(token: string): string {
   return token.substring(0, 8) + '...' + token.substring(token.length - 4)
 }
 
+// 채널별 프로젝트 경로 조회 (채널 설정 → 기본값)
+function getProjectPath(channelId: string, config: Config): string {
+  const channelProject = chatDb.getChannelProject(channelId)
+  return channelProject ?? config.projectPath
+}
+
 // 환경설정 메뉴 메시지
 function getConfigMenuMessage(envConfig: Record<string, string>): string {
   return `*⚙️ 환경설정*
@@ -695,16 +719,21 @@ async function processQueuedMessage(
 
     const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
 
-    // 세션 ID 조회 (채널별 세션 관리)
+    // 채널별 프로젝트 경로 조회
+    const projectPath = getProjectPath(item.channel, config)
+
+    // 세션 ID 조회 (채널+프로젝트별 세션 관리)
     // - Gateway 모드: slack:{channelId} 형식
     // - PTY/CLI 모드: Claude가 반환한 UUID 세션 ID
-    const existingSession = channelSessions.get(item.channel)
+    // 프로젝트가 변경되면 새 세션을 시작 (세션 키에 프로젝트 경로 포함)
+    const sessionKey = getSessionKey(item.channel, projectPath)
+    const existingSession = channelSessions.get(sessionKey)
     const sessionId = config.claudeMode === 'gateway'
       ? `slack:${item.channel}`
       : existingSession
 
     if (!existingSession && config.claudeMode !== 'gateway') {
-      console.log(`[Queue] Starting new session for channel ${item.channel}`)
+      console.log(`[Queue] Starting new session for channel ${item.channel} (project: ${projectPath})`)
     }
 
     const result = await runner.run({
@@ -712,7 +741,7 @@ async function processQueuedMessage(
       model: config.claudeModel,
       timeoutMs: 600000,
       sessionId,
-      cwd: config.projectPath,
+      cwd: projectPath,
       chunkInterval: 5000,
       signal,
       onChunk: async (_chunk: string, accumulated: string) => {
@@ -735,8 +764,8 @@ async function processQueuedMessage(
 
     if (result?.text) {
       if (result.sessionId) {
-        channelSessions.set(item.channel, result.sessionId)
-        console.log(`[Queue] Session for channel ${item.channel}: ${result.sessionId}`)
+        channelSessions.set(sessionKey, result.sessionId)
+        console.log(`[Queue] Session for channel ${item.channel} (project: ${projectPath}): ${result.sessionId}`)
       }
       await addReaction(client, item.channel, item.messageTs, 'white_check_mark')
       const remaining = result.text.slice(streamingState.lastSentLength)
@@ -871,8 +900,10 @@ export function setupSlackHandlers(
 
       // 새 세션 요청 확인
       if (isNewSessionRequest(userMessage)) {
-        const previousSession = channelSessions.get(ctx.channel)
-        channelSessions.delete(ctx.channel)
+        const channelProjectPath = getProjectPath(ctx.channel, config)
+        const sessionKey = getSessionKey(ctx.channel, channelProjectPath)
+        const previousSession = channelSessions.get(sessionKey)
+        channelSessions.delete(sessionKey)
         await addReaction(client, ctx.channel, ctx.messageTs, 'sparkles')
 
         let sessionMsg = '✨ *새로운 세션을 시작합니다.*\n\n'
@@ -995,12 +1026,13 @@ export function setupSlackHandlers(
         messageQueue.clearPending(ctx.channel)
       }
 
-      // 첨부 파일 다운로드 (이미지만) - 프로젝트 폴더에 저장
+      // 첨부 파일 다운로드 (이미지만) - 채널별 프로젝트 폴더에 저장
       downloadedFiles = []
+      const channelProjectPath = getProjectPath(ctx.channel, config)
       if (msg.files && msg.files.length > 0 && config.slackBotToken) {
         console.log(`[Slack] Message has ${msg.files.length} file(s) attached`)
         for (const file of msg.files) {
-          const filePath = await downloadSlackFile(file, config.slackBotToken, config.projectPath)
+          const filePath = await downloadSlackFile(file, config.slackBotToken, channelProjectPath)
           if (filePath) {
             downloadedFiles.push(filePath)
           }
@@ -1010,11 +1042,17 @@ export function setupSlackHandlers(
         }
       }
 
-      // 이미지가 있으면 메시지에 경로 추가
+      // 메시지 구성 (채널 컨텍스트 + 이미지)
       let finalMessage = cleanText
+
+      // 채널 ID 컨텍스트 추가 (MCP 도구에서 사용)
+      const channelContext = `[Slack 채널 ID: ${ctx.channel}]`
+      finalMessage = `${channelContext}\n\n${cleanText}`
+
+      // 이미지가 있으면 메시지에 경로 추가
       if (downloadedFiles.length > 0) {
         const imageList = downloadedFiles.map(f => f).join('\n- ')
-        finalMessage = `${cleanText}\n\n[첨부된 이미지 파일 - Read 도구로 확인해주세요]\n- ${imageList}`
+        finalMessage = `${finalMessage}\n\n[첨부된 이미지 파일 - Read 도구로 확인해주세요]\n- ${imageList}`
       }
 
       // 큐에 추가
