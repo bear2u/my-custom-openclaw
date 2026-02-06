@@ -5,7 +5,7 @@ export interface RouteResult {
   message: string
 }
 
-const CODEX_PREFIX = /^\/codex\s+/i
+const CODEX_PREFIX = /^\/(codex|gpt)\s+/i
 
 export function routeMessage(text: string): RouteResult {
   if (CODEX_PREFIX.test(text)) {

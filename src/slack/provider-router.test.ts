@@ -21,4 +21,14 @@ describe('routeMessage', () => {
     const result = routeMessage('codex 관련 질문이야')
     expect(result).toEqual({ provider: 'claude', message: 'codex 관련 질문이야' })
   })
+
+  it('should route /gpt prefixed messages to codex provider', () => {
+    const result = routeMessage('/gpt REST API 만들어줘')
+    expect(result).toEqual({ provider: 'codex', message: 'REST API 만들어줘' })
+  })
+
+  it('should be case-insensitive for /gpt prefix', () => {
+    expect(routeMessage('/GPT build it')).toEqual({ provider: 'codex', message: 'build it' })
+    expect(routeMessage('/Gpt build it')).toEqual({ provider: 'codex', message: 'build it' })
+  })
 })

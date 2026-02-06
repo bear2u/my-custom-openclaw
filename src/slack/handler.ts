@@ -181,7 +181,7 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`모든 채널 프로젝트 목록 보여줘\` - 전체 채널-프로젝트 매핑 조회
 
 *Codex 사용*
-• \`/codex 질문\` - OpenAI Codex로 질문 (예: \`/codex REST API 만들어줘\`)
+• \`/codex 질문\` 또는 \`/gpt 질문\` - OpenAI Codex로 질문 (예: \`/codex REST API 만들어줘\`)
 • Codex 세션은 Claude와 독립적으로 유지됩니다
 
 *대화 검색*
