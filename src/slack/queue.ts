@@ -8,6 +8,7 @@ export interface QueueItem {
   userId: string
   text: string
   files?: string[]
+  provider?: 'claude' | 'codex'
   enqueuedAt: number
 }
 

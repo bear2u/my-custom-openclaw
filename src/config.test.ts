@@ -66,6 +66,32 @@ describe('loadConfig', () => {
     expect(config.gatewayToken).toBe('test-token')
   })
 
+  it('should load codex config with defaults', () => {
+    process.env.PROJECT_PATH = '/test/project'
+    delete process.env.CODEX_PATH
+    delete process.env.CODEX_MODEL
+    delete process.env.CODEX_SANDBOX
+
+    const config = loadConfig()
+
+    expect(config.codexPath).toBe('codex')
+    expect(config.codexModel).toBe('')
+    expect(config.codexSandbox).toBe('read-only')
+  })
+
+  it('should load codex config from env vars', () => {
+    process.env.PROJECT_PATH = '/test/project'
+    process.env.CODEX_PATH = '/usr/local/bin/codex'
+    process.env.CODEX_MODEL = 'gpt-5'
+    process.env.CODEX_SANDBOX = 'workspace-write'
+
+    const config = loadConfig()
+
+    expect(config.codexPath).toBe('/usr/local/bin/codex')
+    expect(config.codexModel).toBe('gpt-5')
+    expect(config.codexSandbox).toBe('workspace-write')
+  })
+
   it('should use default gateway URL when not specified', () => {
     process.env.PROJECT_PATH = '/test/project'
     process.env.CLAUDE_MODE = 'gateway'
@@ -90,6 +116,9 @@ describe('validateConfig', () => {
     claudeMode: 'cli',
     gatewayUrl: 'ws://127.0.0.1:18789',
     gatewayToken: undefined,
+    codexPath: 'codex',
+    codexModel: '',
+    codexSandbox: 'read-only',
   }
 
   it('should throw error when SLACK_BOT_TOKEN is missing', () => {

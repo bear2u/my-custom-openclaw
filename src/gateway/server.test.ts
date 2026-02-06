@@ -32,6 +32,9 @@ describe('GatewayServer', () => {
     claudeMode: 'gateway',
     gatewayUrl: 'ws://127.0.0.1:18789',
     gatewayToken: undefined,
+    codexPath: 'codex',
+    codexModel: '',
+    codexSandbox: 'read-only',
   }
 
   beforeEach(() => {

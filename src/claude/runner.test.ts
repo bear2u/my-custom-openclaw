@@ -115,6 +115,9 @@ describe('createRunner', () => {
     claudeMode: 'cli',
     gatewayUrl: 'ws://127.0.0.1:18789',
     gatewayToken: undefined,
+    codexPath: 'codex',
+    codexModel: '',
+    codexSandbox: 'read-only',
   }
 
   it('should return CliRunner when claudeMode is cli', () => {

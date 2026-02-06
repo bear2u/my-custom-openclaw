@@ -2,7 +2,9 @@ import type { App } from '@slack/bolt'
 import type { WebClient } from '@slack/web-api'
 import type { Config } from '../config.js'
 import { createRunner, type ClaudeRunner } from '../claude/runner.js'
+import { CodexRunner } from '../codex/runner.js'
 import { messageQueue, MAX_QUEUE_SIZE, type QueueItem } from './queue.js'
+import { routeMessage } from './provider-router.js'
 import { existsSync, readFileSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -87,6 +89,9 @@ const processingMessages = new Set<string>()
 // 채널별 세션 ID 매핑 (채널ID:프로젝트경로 → Claude 세션 ID)
 // 프로젝트가 변경되면 새 세션을 시작하기 위해 프로젝트 경로도 키에 포함
 const channelSessions = new Map<string, string>()
+
+// Codex 채널별 세션 매핑 (채널ID:프로젝트경로 → Codex thread_id)
+const codexChannelSessions = new Map<string, string>()
 
 // 채널+프로젝트 조합으로 세션 키 생성
 function getSessionKey(channelId: string, projectPath: string): string {
@@ -174,6 +179,10 @@ const HELP_MESSAGE = `*Claude Bot 사용 가이드*
 • \`현재 프로젝트 경로 알려줘\` - 현재 채널의 프로젝트 확인
 • \`프로젝트 연결 해제해줘\` - 채널 프로젝트 연결 해제 (기본값 사용)
 • \`모든 채널 프로젝트 목록 보여줘\` - 전체 채널-프로젝트 매핑 조회
+
+*Codex 사용*
+• \`/codex 질문\` - OpenAI Codex로 질문 (예: \`/codex REST API 만들어줘\`)
+• Codex 세션은 Claude와 독립적으로 유지됩니다
 
 *대화 검색*
 • \`지난번에 API 얘기한 거 찾아줘\` - 과거 대화 검색
@@ -706,8 +715,29 @@ async function handleCronCommand(
   return { handled: false }
 }
 
-// 큐에서 꺼낸 메시지 처리
-async function processQueuedMessage(
+// 큐 완료 후 다음 작업 시작 공통 처리
+async function completeQueueItem(
+  client: WebClient,
+  item: QueueItem
+): Promise<void> {
+  // 임시 파일 정리
+  if (item.files && item.files.length > 0) {
+    cleanupTempFiles(item.files)
+  }
+
+  // 다음 작업 시작
+  const next = messageQueue.complete(item.channel)
+  if (next) {
+    const status = messageQueue.getStatus(item.channel)
+    await client.chat.postMessage({
+      channel: item.channel,
+      text: `👀 대기 중인 작업을 시작합니다... (${status.pending.length}개 남음)`,
+    })
+  }
+}
+
+// 큐에서 꺼낸 Claude 메시지 처리
+async function processClaudeMessage(
   client: WebClient,
   config: Config,
   item: QueueItem,
@@ -723,17 +753,14 @@ async function processQueuedMessage(
     const projectPath = getProjectPath(item.channel, config)
 
     // 세션 ID 조회 (채널+프로젝트별 세션 관리)
-    // - Gateway 모드: slack:{channelId} 형식
-    // - PTY/CLI 모드: Claude가 반환한 UUID 세션 ID
-    // 프로젝트가 변경되면 새 세션을 시작 (세션 키에 프로젝트 경로 포함)
     const sessionKey = getSessionKey(item.channel, projectPath)
     const existingSession = channelSessions.get(sessionKey)
     const sessionId = config.claudeMode === 'gateway'
       ? `slack:${item.channel}`
       : existingSession
 
-    if (!existingSession && config.claudeMode !== 'gateway') {
-      console.log(`[Queue] Starting new session for channel ${item.channel} (project: ${projectPath})`)
+    if (!existingSession) {
+      console.log(`[Queue] Starting new Claude session for channel ${item.channel} (project: ${projectPath})`)
     }
 
     const result = await runner.run({
@@ -765,7 +792,7 @@ async function processQueuedMessage(
     if (result?.text) {
       if (result.sessionId) {
         channelSessions.set(sessionKey, result.sessionId)
-        console.log(`[Queue] Session for channel ${item.channel} (project: ${projectPath}): ${result.sessionId}`)
+        console.log(`[Queue] Claude session for channel ${item.channel} (project: ${projectPath}): ${result.sessionId}`)
       }
       await addReaction(client, item.channel, item.messageTs, 'white_check_mark')
       const remaining = result.text.slice(streamingState.lastSentLength)
@@ -785,20 +812,87 @@ async function processQueuedMessage(
       await sendMessage(client, item.channel, `오류: ${err instanceof Error ? err.message : 'Unknown'}`)
     }
   } finally {
-    // 임시 파일 정리
-    if (item.files && item.files.length > 0) {
-      cleanupTempFiles(item.files)
+    await completeQueueItem(client, item)
+  }
+}
+
+// 큐에서 꺼낸 Codex 메시지 처리 (별도 핸들러)
+// - [Slack 채널 ID] 컨텍스트 없음
+// - config.codexModel 사용
+// - codexChannelSessions으로 독립 세션 관리
+async function processCodexMessage(
+  client: WebClient,
+  config: Config,
+  item: QueueItem,
+  signal: AbortSignal,
+  codexRunner: ClaudeRunner
+): Promise<void> {
+  try {
+    await addReaction(client, item.channel, item.messageTs, 'eyes')
+
+    const streamingState: StreamingState = { lastSentLength: 0, messageCount: 0 }
+
+    // 채널별 프로젝트 경로 조회
+    const projectPath = getProjectPath(item.channel, config)
+
+    // Codex 세션 ID 조회 (채널+프로젝트별 세션 관리)
+    const sessionKey = getSessionKey(item.channel, projectPath)
+    const existingSession = codexChannelSessions.get(sessionKey)
+
+    if (!existingSession) {
+      console.log(`[Queue] Starting new Codex session for channel ${item.channel} (project: ${projectPath})`)
     }
 
-    // 다음 작업 시작
-    const next = messageQueue.complete(item.channel)
-    if (next) {
-      const status = messageQueue.getStatus(item.channel)
-      await client.chat.postMessage({
-        channel: item.channel,
-        text: `👀 대기 중인 작업을 시작합니다... (${status.pending.length}개 남음)`,
-      })
+    const result = await codexRunner.run({
+      message: item.text,
+      model: config.codexModel,
+      timeoutMs: 600000,
+      sessionId: existingSession,
+      cwd: projectPath,
+      chunkInterval: 5000,
+      signal,
+      onChunk: async (_chunk: string, accumulated: string) => {
+        if (signal.aborted) return
+        try {
+          await sendStreamingChunk(client, item.channel, accumulated, streamingState)
+        } catch (err) {
+          console.error('[Queue] Codex chunk error:', err)
+        }
+      },
+    })
+
+    if (signal.aborted) {
+      await removeReaction(client, item.channel, item.messageTs, 'eyes')
+      await addReaction(client, item.channel, item.messageTs, 'x')
+      return
     }
+
+    await removeReaction(client, item.channel, item.messageTs, 'eyes')
+
+    if (result?.text) {
+      if (result.sessionId) {
+        codexChannelSessions.set(sessionKey, result.sessionId)
+        console.log(`[Queue] Codex session for channel ${item.channel} (project: ${projectPath}): ${result.sessionId}`)
+      }
+      await addReaction(client, item.channel, item.messageTs, 'white_check_mark')
+      const remaining = result.text.slice(streamingState.lastSentLength)
+      if (remaining.length > 0) {
+        await sendMessage(client, item.channel, remaining)
+      }
+      console.log(`[Queue] Codex response sent (${result.text.length} chars)`)
+    } else {
+      await sendMessage(client, item.channel, 'Codex 응답을 생성하지 못했습니다.')
+      await addReaction(client, item.channel, item.messageTs, 'question')
+    }
+  } catch (err) {
+    if (!signal.aborted) {
+      console.error('[Queue] Codex error:', err)
+      await removeReaction(client, item.channel, item.messageTs, 'eyes')
+      await addReaction(client, item.channel, item.messageTs, 'x')
+      await sendMessage(client, item.channel, `Codex 오류: ${err instanceof Error ? err.message : 'Unknown'}`)
+    }
+  } finally {
+    await completeQueueItem(client, item)
   }
 }
 
@@ -813,6 +907,7 @@ export function setupSlackHandlers(
 
   // Runner 생성 (CLI 또는 Gateway 모드)
   const runner = createRunner(config)
+  const codexRunner = new CodexRunner(config)
 
   // 큐 이벤트 핸들러를 저장할 변수 (클라이언트가 필요하므로 나중에 등록)
   let queueHandlerClient: WebClient | null = null
@@ -828,8 +923,12 @@ export function setupSlackHandlers(
     queueHandlerClient = client
 
     messageQueue.on('process', (item: QueueItem, signal: AbortSignal) => {
-      console.log(`[Queue] 'process' event received for item: ${item.id}`)
-      processQueuedMessage(queueHandlerClient!, config, item, signal, runner)
+      console.log(`[Queue] 'process' event received for item: ${item.id} (provider: ${item.provider || 'claude'})`)
+      if (item.provider === 'codex') {
+        processCodexMessage(queueHandlerClient!, config, item, signal, codexRunner)
+      } else {
+        processClaudeMessage(queueHandlerClient!, config, item, signal, runner)
+      }
     })
     console.log('[Slack] Queue handler registered')
   }
@@ -888,10 +987,15 @@ export function setupSlackHandlers(
     try {
       // 사용자 메시지 추출 (리액션은 큐 추가 후 상태에 따라 추가)
       const userMessage = extractUserMessage(text, botUserId)
-      console.log(`[Slack] Processing message from ${msg.user}: ${userMessage.slice(0, 100)}...`)
+
+      // 프로바이더 라우팅 (/codex 접두사 감지)
+      const { provider, message: routedMessage } = routeMessage(userMessage)
+      const effectiveMessage = routedMessage
+
+      console.log(`[Slack] Processing message from ${msg.user} (provider: ${provider}): ${effectiveMessage.slice(0, 100)}...`)
 
       // 도움말 요청 확인
-      if (isHelpRequest(userMessage)) {
+      if (isHelpRequest(effectiveMessage)) {
         await addReaction(client, ctx.channel, ctx.messageTs, 'bulb')
         await sendMessage(client, ctx.channel, HELP_MESSAGE)
         processingMessages.delete(messageKey)
@@ -899,11 +1003,12 @@ export function setupSlackHandlers(
       }
 
       // 새 세션 요청 확인
-      if (isNewSessionRequest(userMessage)) {
+      if (isNewSessionRequest(effectiveMessage)) {
         const channelProjectPath = getProjectPath(ctx.channel, config)
         const sessionKey = getSessionKey(ctx.channel, channelProjectPath)
         const previousSession = channelSessions.get(sessionKey)
         channelSessions.delete(sessionKey)
+        codexChannelSessions.delete(sessionKey)
         await addReaction(client, ctx.channel, ctx.messageTs, 'sparkles')
 
         let sessionMsg = '✨ *새로운 세션을 시작합니다.*\n\n'
@@ -923,7 +1028,7 @@ export function setupSlackHandlers(
       const pendingRestart = restartPending.get(ctx.channel)
       if (pendingRestart && Date.now() - pendingRestart < 60000) {
         // 확인 대기 중
-        if (isRestartConfirm(userMessage)) {
+        if (isRestartConfirm(effectiveMessage)) {
           restartPending.delete(ctx.channel)
           await addReaction(client, ctx.channel, ctx.messageTs, 'arrows_counterclockwise')
           await sendMessage(client, ctx.channel, '🔄 게이트웨이를 재시작합니다...')
@@ -935,7 +1040,7 @@ export function setupSlackHandlers(
             process.exit(0) // PM2나 systemd가 자동으로 재시작
           }, 1000)
           return
-        } else if (isRestartCancel(userMessage)) {
+        } else if (isRestartCancel(effectiveMessage)) {
           restartPending.delete(ctx.channel)
           await sendMessage(client, ctx.channel, '재시작이 취소되었습니다.')
           processingMessages.delete(messageKey)
@@ -943,7 +1048,7 @@ export function setupSlackHandlers(
         }
       }
 
-      if (isRestartRequest(userMessage)) {
+      if (isRestartRequest(effectiveMessage)) {
         restartPending.set(ctx.channel, Date.now())
         await addReaction(client, ctx.channel, ctx.messageTs, 'warning')
         await sendMessage(client, ctx.channel, '⚠️ *게이트웨이를 재시작하시겠습니까?*\n\n모든 활성 연결이 끊어지고 설정이 다시 로드됩니다.\n\n`확인` 또는 `취소`를 입력하세요. (1분 내)')
@@ -952,7 +1057,7 @@ export function setupSlackHandlers(
       }
 
       // 환경설정 대화 처리
-      const configResult = await handleConfigConversation(client, ctx.channel, userMessage, envPath)
+      const configResult = await handleConfigConversation(client, ctx.channel, effectiveMessage, envPath)
       if (configResult.handled) {
         await addReaction(client, ctx.channel, ctx.messageTs, 'gear')
         if (configResult.message) {
@@ -963,7 +1068,7 @@ export function setupSlackHandlers(
       }
 
       // 큐 상태 확인 명령어
-      if (isQueueStatusRequest(userMessage)) {
+      if (isQueueStatusRequest(effectiveMessage)) {
         const status = messageQueue.getStatus(ctx.channel)
         let statusMsg = '📋 *현재 대기열*\n\n'
         if (status.current) {
@@ -985,7 +1090,7 @@ export function setupSlackHandlers(
 
       // 큐 비우기 명령어 (현재 작업 + 대기열 모두 취소)
       // !로 시작해도 취소 명령어면 취소만 처리 (예: !모두 취소, !큐 비우기)
-      const textForClearCheck = userMessage.startsWith('!') ? userMessage.slice(1).trim() : userMessage
+      const textForClearCheck = effectiveMessage.startsWith('!') ? effectiveMessage.slice(1).trim() : effectiveMessage
       if (isQueueClearRequest(textForClearCheck)) {
         const { cancelledCurrent, clearedPending } = messageQueue.clearAll(ctx.channel)
         let msg = '🗑️ '
@@ -1004,7 +1109,7 @@ export function setupSlackHandlers(
       }
 
       // 크론 명령어 처리
-      const cronResult = await handleCronCommand(client, ctx.channel, userMessage)
+      const cronResult = await handleCronCommand(client, ctx.channel, effectiveMessage)
       if (cronResult.handled) {
         await addReaction(client, ctx.channel, ctx.messageTs, 'clock3')
         if (cronResult.message) {
@@ -1018,8 +1123,8 @@ export function setupSlackHandlers(
       registerQueueHandler(client)
 
       // 취소 후 시작 (! 접두사) - 현재 작업 + 대기열 모두 취소
-      const cancelPrevious = userMessage.startsWith('!')
-      const cleanText = cancelPrevious ? userMessage.slice(1).trim() : userMessage
+      const cancelPrevious = effectiveMessage.startsWith('!')
+      const cleanText = cancelPrevious ? effectiveMessage.slice(1).trim() : effectiveMessage
 
       // ! 접두사면 대기열도 비우기
       if (cancelPrevious) {
@@ -1042,12 +1147,15 @@ export function setupSlackHandlers(
         }
       }
 
-      // 메시지 구성 (채널 컨텍스트 + 이미지)
+      // 메시지 구성
       let finalMessage = cleanText
 
-      // 채널 ID 컨텍스트 추가 (MCP 도구에서 사용)
-      const channelContext = `[Slack 채널 ID: ${ctx.channel}]`
-      finalMessage = `${channelContext}\n\n${cleanText}`
+      // Claude에만 채널 ID 컨텍스트 추가 (MCP 도구에서 사용)
+      // Codex는 채널 컨텍스트 불필요
+      if (provider !== 'codex') {
+        const channelContext = `[Slack 채널 ID: ${ctx.channel}]`
+        finalMessage = `${channelContext}\n\n${cleanText}`
+      }
 
       // 이미지가 있으면 메시지에 경로 추가
       if (downloadedFiles.length > 0) {
@@ -1063,6 +1171,7 @@ export function setupSlackHandlers(
         userId: msg.user!,
         text: finalMessage,
         files: downloadedFiles,
+        provider,
       }, { cancelCurrent: cancelPrevious })
 
       if (result.queueFull) {

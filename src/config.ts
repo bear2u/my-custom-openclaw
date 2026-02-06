@@ -14,6 +14,10 @@ export interface Config {
   claudeMode: ClaudeMode
   gatewayUrl: string
   gatewayToken?: string
+  // Codex 설정
+  codexPath: string
+  codexModel: string
+  codexSandbox: string
 }
 
 export function loadConfig(): Config {
@@ -53,6 +57,10 @@ export function loadConfig(): Config {
     claudeMode,
     gatewayUrl: process.env.GATEWAY_URL ?? 'ws://127.0.0.1:18789',
     gatewayToken: process.env.GATEWAY_TOKEN,
+    // Codex 설정
+    codexPath: process.env.CODEX_PATH ?? 'codex',
+    codexModel: process.env.CODEX_MODEL ?? '',
+    codexSandbox: process.env.CODEX_SANDBOX ?? 'read-only',
   }
 }
 
