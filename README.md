@@ -1,4 +1,4 @@
-# Slack-Claude Gateway
+# Slack와 함께 일하는 Claude,Codex팀 에이전트 솔루션
 
 [![GitHub](https://img.shields.io/badge/GitHub-bear2u%2Fmy--custom--openclaw-blue)](https://github.com/bear2u/my-custom-openclaw)
 
