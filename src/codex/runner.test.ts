@@ -66,4 +66,19 @@ describe('buildCodexArgs', () => {
     ])
     expect(args).not.toContain('--sandbox')
   })
+
+  it('should use --dangerously-bypass-approvals-and-sandbox when sandbox is yolo', () => {
+    const args = buildCodexArgs({
+      message: 'hello',
+      cwd: '/project',
+      sandbox: 'yolo',
+    })
+
+    expect(args).toEqual([
+      'exec', '--json', '--dangerously-bypass-approvals-and-sandbox',
+      '--skip-git-repo-check', '-C', '/project', 'hello',
+    ])
+    expect(args).not.toContain('--sandbox')
+    expect(args).not.toContain('--full-auto')
+  })
 })

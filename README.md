@@ -363,7 +363,7 @@ Slack에서 `/codex` 또는 `/gpt` 접두사로 OpenAI Codex CLI를 호출할 �
 |------|------|--------|
 | `CODEX_PATH` | Codex CLI 실행 파일 경로 | `codex` |
 | `CODEX_MODEL` | Codex 모델 선택 | (미지정 시 Codex 기본값) |
-| `CODEX_SANDBOX` | 샌드박스 모드 | `read-only` |
+| `CODEX_SANDBOX` | 샌드박스 모드 (`yolo`, `full-auto`, `workspace-write`, `read-only`, `danger-full-access`) | `yolo` |
 
 ### 특징
 
@@ -492,7 +492,7 @@ SLACK_APP_TOKEN=xapp-your-app-token
 | `BROWSER_RELAY_PORT` | 브라우저 릴레이 포트 | `18792` |
 | `CODEX_PATH` | Codex CLI 실행 파일 경로 | `codex` |
 | `CODEX_MODEL` | Codex 모델 선택 | - |
-| `CODEX_SANDBOX` | Codex 샌드박스 모드 | `read-only` |
+| `CODEX_SANDBOX` | Codex 샌드박스 모드 | `yolo` |
 
 ## Slack App 설정
 
