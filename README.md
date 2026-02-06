@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-bear2u%2Fmy--custom--openclaw-blue)](https://github.com/bear2u/my-custom-openclaw)
 
-Slack Bot과 Claude Code CLI를 연결하는 게이트웨이 서버입니다. Slack에서 메시지를 보내면 Claude Code CLI를 통해 AI 응답을 받을 수 있습니다.
+Slack Bot과 Claude Code CLI / OpenAI Codex CLI를 연결하는 게이트웨이 서버입니다. Slack에서 메시지를 보내면 Claude 또는 Codex(`/codex`, `/gpt`)를 통해 AI 응답을 받을 수 있습니다.
 
 ## 주요 기능
 
