@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "cron": {
+      "command": "node",
+      "args": ["dist/mcp/server.js"],
+      "cwd": "/Users/symverse/workspaces-claude-code/slack-connector"
+    }
+  }
+}
