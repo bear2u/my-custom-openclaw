@@ -38,7 +38,9 @@ export function buildCodexArgs(options: CodexRunOptions): string[] {
 
   const args = ['exec', '--json']
 
-  if (options.sandbox) {
+  if (options.sandbox === 'full-auto') {
+    args.push('--full-auto')
+  } else if (options.sandbox) {
     args.push('--sandbox', options.sandbox)
   }
 

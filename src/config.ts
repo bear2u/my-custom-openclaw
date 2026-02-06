@@ -60,7 +60,7 @@ export function loadConfig(): Config {
     // Codex 설정
     codexPath: process.env.CODEX_PATH ?? 'codex',
     codexModel: process.env.CODEX_MODEL ?? '',
-    codexSandbox: process.env.CODEX_SANDBOX ?? 'read-only',
+    codexSandbox: process.env.CODEX_SANDBOX ?? 'full-auto',
   }
 }
 

@@ -52,4 +52,18 @@ describe('buildCodexArgs', () => {
 
     expect(args).not.toContain('-m')
   })
+
+  it('should use --full-auto flag when sandbox is full-auto', () => {
+    const args = buildCodexArgs({
+      message: 'hello',
+      cwd: '/project',
+      sandbox: 'full-auto',
+    })
+
+    expect(args).toEqual([
+      'exec', '--json', '--full-auto',
+      '--skip-git-repo-check', '-C', '/project', 'hello',
+    ])
+    expect(args).not.toContain('--sandbox')
+  })
 })

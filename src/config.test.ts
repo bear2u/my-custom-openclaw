@@ -76,7 +76,7 @@ describe('loadConfig', () => {
 
     expect(config.codexPath).toBe('codex')
     expect(config.codexModel).toBe('')
-    expect(config.codexSandbox).toBe('read-only')
+    expect(config.codexSandbox).toBe('full-auto')
   })
 
   it('should load codex config from env vars', () => {
