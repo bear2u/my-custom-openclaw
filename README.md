@@ -10,6 +10,7 @@ Slack Bot과 Claude Code CLI를 연결하는 게이트웨이 서버입니다. Sl
 - **Slack Bot 연동**: Socket Mode를 통한 실시간 Slack 연동
 - **메시지 큐 시스템**: 채널별 독립 큐, 순차 처리, 작업 취소 지원
 - **Claude CLI 통합**: PTY 기반 실행 (OpenClaw 방식), 스트리밍 응답, 세션 관리, AbortSignal 기반 취소
+- **Codex CLI 통합**: `/codex` 또는 `/gpt` 접두사로 OpenAI Codex CLI 호출, PTY 기반 JSONL 파싱, 독립 세션 관리
 - **크론 스케줄러**: 자연어 기반 일정 예약, 반복 작업, 리마인더 지원
 - **WebSocket 서버**: 프론트엔드와 실시간 양방향 통신
 - **브라우저 자동화**: Puppeteer / Chrome Extension Relay 지원
@@ -39,6 +40,8 @@ Slack이나 웹 채팅에서 자연어로 칸반 보드를 관리할 수 있습�
 | `@bot 새 세션` | 새로운 대화 세션 시작 |
 | `@bot 환경설정` | 게이트웨이 설정 메뉴 |
 | `@bot 도움말` | 사용법 안내 |
+| `@bot /codex 질문` | OpenAI Codex CLI로 질문 처리 |
+| `@bot /gpt 질문` | `/codex`와 동일 (별칭) |
 
 ### 자연어 칸반 명령어
 
@@ -339,6 +342,36 @@ curl -X PUT http://localhost:4900/api/channels/C12345678/project \
 - 크론 작업도 해당 채널의 프로젝트 경로에서 실행
 - **프로젝트 변경 시 새 세션 시작**: 채널의 프로젝트를 변경하면 자동으로 새 Claude 세션이 시작됩니다 (이전 대화 컨텍스트 초기화)
 
+## Codex CLI 연동
+
+Slack에서 `/codex` 또는 `/gpt` 접두사로 OpenAI Codex CLI를 호출할 수 있습니다. Claude와 독립적인 세션으로 관리됩니다.
+
+### 사용법
+
+```
+사용자: @bot /codex REST API 만들어줘
+봇:     👀 처리 중... (Codex)
+봇:     ✅ [Codex 응답]
+
+사용자: @bot /gpt 후속 질문
+봇:     👀 처리 중... (이전 Codex 세션 이어서)
+```
+
+### 환경 변수
+
+| 변수 | 설명 | 기본값 |
+|------|------|--------|
+| `CODEX_PATH` | Codex CLI 실행 파일 경로 | `codex` |
+| `CODEX_MODEL` | Codex 모델 선택 | (미지정 시 Codex 기본값) |
+| `CODEX_SANDBOX` | 샌드박스 모드 | `read-only` |
+
+### 특징
+
+- Claude와 Codex 세션은 채널별로 독립 관리
+- `/codex` 또는 `/gpt` 접두사 (대소문자 무시)
+- `새 세션` 명령 시 Claude와 Codex 세션 모두 초기화
+- 기존 채널 큐 시스템 공유 (순차 처리)
+
 ## Claude 실행 모드
 
 환경변수 `CLAUDE_MODE`로 Claude CLI 실행 방식을 선택할 수 있습니다.
@@ -380,6 +413,7 @@ slack-connector/
 │   ├── mcp/              # MCP 서버 (Claude Code 연동)
 │   │   └── server.ts     # REST API 기반 크론 MCP 서버
 │   ├── claude/           # Claude CLI 러너
+│   ├── codex/            # Codex CLI 러너 (PTY + JSONL 파서)
 │   ├── browser/          # 브라우저 자동화
 │   ├── db/               # SQLite 데이터베이스
 │   └── session/          # 세션 관리
@@ -456,6 +490,9 @@ SLACK_APP_TOKEN=xapp-your-app-token
 | `WS_PORT` | WebSocket 서버 포트 | `4900` |
 | `BROWSER_MODE` | 브라우저 모드 (off/puppeteer/relay) | `off` |
 | `BROWSER_RELAY_PORT` | 브라우저 릴레이 포트 | `18792` |
+| `CODEX_PATH` | Codex CLI 실행 파일 경로 | `codex` |
+| `CODEX_MODEL` | Codex 모델 선택 | - |
+| `CODEX_SANDBOX` | Codex 샌드박스 모드 | `read-only` |
 
 ## Slack App 설정
 
